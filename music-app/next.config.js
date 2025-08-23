@@ -1,9 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  swcMinify: false,
+  // swcMinify: true, // Re-enable to test
   experimental: {
     esmExternals: false,
   },
-}
+};
 
-module.exports = nextConfig
+module.exports = nextConfig;
