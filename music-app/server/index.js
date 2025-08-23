@@ -731,7 +731,7 @@ process.on('unhandledRejection', e => console.error('UnhandledRejection', e));
 process.on('uncaughtException', e => console.error('UncaughtException', e));
 
 app.listen(PORT, () => {
-  console.log(` Server is running on http://localhost:${PORT}`);
+  console.log(` Server is running on Port:${PORT}`);
   
   if (!userTokens) {
     console.log(`Authentication required: http://localhost:${PORT}/auth/google`);
