@@ -1,5 +1,4 @@
 'use client'
-'use client'
 
 import { Box, Typography, IconButton, Chip } from '@mui/material'
 import { PlayArrow as PlayIcon, Pause as PauseIcon, FavoriteBorder, Favorite, MusicNote as MusicNoteIcon } from '@mui/icons-material'

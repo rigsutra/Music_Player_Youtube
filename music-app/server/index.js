@@ -95,7 +95,6 @@ function loadFolderId() {
 function saveFolderId(folderId) {
   try {
     fs.writeFileSync(FOLDER_FILE, JSON.stringify({ folderId }, null, 2));
-    console.log('📁 Folder ID saved');
   } catch (error) {
     console.error('Error saving folder ID:', error);
   }
@@ -121,7 +120,6 @@ function loadTokens() {
     if (fs.existsSync(TOKEN_FILE)) {
       const tokens = JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf8'));
       oauth2Client.setCredentials(tokens);
-      console.log('🔐 Tokens loaded from file');
       return tokens;
     }
   } catch (error) {
@@ -133,7 +131,6 @@ function loadTokens() {
 function saveTokens(tokens) {
   try {
     fs.writeFileSync(TOKEN_FILE, JSON.stringify(tokens, null, 2));
-    console.log('💾 Tokens saved to file');
   } catch (error) {
     console.error('Error saving tokens:', error);
   }
@@ -146,10 +143,8 @@ async function ensureMusicFolder() {
     try {
       const drive = google.drive({ version: 'v3', auth: oauth2Client });
       await drive.files.get({ fileId: musicFolderId });
-      console.log('📁 Using existing Music Player folder:', musicFolderId);
       return musicFolderId;
     } catch (error) {
-      console.log('📁 Stored folder ID invalid, creating new one...');
       musicFolderId = null;
     }
   }
@@ -171,7 +166,6 @@ async function ensureMusicFolder() {
 
     musicFolderId = folder.data.id;
     saveFolderId(musicFolderId); // Persist folder ID
-    console.log('📁 Created Music Player folder:', musicFolderId);
     return musicFolderId;
     
   } catch (error) {
@@ -232,14 +226,14 @@ app.get('/auth/google/callback', async (req, res) => {
 //   }
 
 //   try {
-//     console.log('🎵 Processing YouTube URL:', youtubeUrl);
+//     console.log(' Processing YouTube URL:', youtubeUrl);
 
 //     const tempDir = path.join(__dirname, 'temp');
 //     if (!fs.existsSync(tempDir)) {
 //       fs.mkdirSync(tempDir);
 //     }
 
-//     console.log('ℹ️  Getting video information...');
+//     console.log(' Getting video information...');
 //     const info = await youtubedl(youtubeUrl, {
 //       dumpSingleJson: true,
 //       noWarnings: true,
@@ -255,8 +249,8 @@ app.get('/auth/google/callback', async (req, res) => {
 //     const finalFileName = `${fileName || sanitizedTitle}`;
 //     const outputPath = path.join(tempDir, finalFileName);
 
-//     console.log(`✅ Video found: "${videoTitle}"`);
-//     console.log('⬇️  Downloading audio...');
+//     console.log(` Video found: "${videoTitle}"`);
+//     console.log(' Downloading audio...');
 
 //     await youtubedl(youtubeUrl, {
 //       format: 'bestaudio',
@@ -283,8 +277,8 @@ app.get('/auth/google/callback', async (req, res) => {
 //     const finalFileExtension = path.extname(files[0]);
 //     const finalFileNameWithExt = finalFileName + finalFileExtension;
     
-//     console.log('✅ Audio downloaded successfully:', files[0]);
-//     console.log('☁️  Uploading to Google Drive Music Player folder...');
+//     console.log(' Audio downloaded successfully:', files[0]);
+//     console.log(' Uploading to Google Drive Music Player folder...');
 
 //     // STRICT: Must upload to Music Player folder only
 //     const folderId = await ensureMusicFolder();
@@ -309,7 +303,7 @@ app.get('/auth/google/callback', async (req, res) => {
 //     });
 
 //     fs.unlinkSync(downloadedFile);
-//     console.log('🎉 Upload successful, file ID:', uploadResponse.data.id);
+//     console.log(' Upload successful, file ID:', uploadResponse.data.id);
 
 //     res.status(200).json({ 
 //       message: 'File uploaded to Google Drive successfully!', 
@@ -319,7 +313,7 @@ app.get('/auth/google/callback', async (req, res) => {
 //     });
 
 //   } catch (error) {
-//     console.error('❌ Error in download-and-upload:', error);
+//     console.error(' Error in download-and-upload:', error);
 
 //     // Cleanup
 //     try {
@@ -369,7 +363,7 @@ app.get('/auth/google/callback', async (req, res) => {
 //   }
 
 //   try {
-//     console.log('🎵 Streaming YouTube URL to Google Drive:', youtubeUrl);
+//     console.log(' Streaming YouTube URL to Google Drive:', youtubeUrl);
 
 //     // Get video info (for title)
 //     const info = await ytdl.getInfo(youtubeUrl);
@@ -403,7 +397,7 @@ app.get('/auth/google/callback', async (req, res) => {
 //       },
 //     });
 
-//     console.log('✅ Upload successful:', response.data.id);
+//     console.log('Upload successful:', response.data.id);
 
 //     res.status(200).json({
 //       message: 'File uploaded successfully to Google Drive',
@@ -413,7 +407,7 @@ app.get('/auth/google/callback', async (req, res) => {
 //     });
 
 //   } catch (error) {
-//     console.error('❌ Error streaming video to Drive:', error);
+//     console.error('Error streaming video to Drive:', error);
 //     res.status(500).json({ message: 'Failed to process video upload' });
 //   }
 // });
@@ -475,7 +469,6 @@ app.post('/api/download-and-upload', async (req, res) => {
       try {
   info = await ytdl.getInfo(normalizedUrl);
   ytdlStream = ytdl.downloadFromInfo(info, { quality: 'highestaudio', filter: 'audioonly', highWaterMark: 1<<25 });
-        console.log('✅ Using @distube/ytdl-core');
         ytdlStream.on('progress', (_, downloaded, total) => {
           uploadsProgress[uploadId] = {
             progress: Math.min(99, Math.floor((downloaded / total) * 100)),
@@ -483,7 +476,7 @@ app.post('/api/download-and-upload', async (req, res) => {
           };
         });
       } catch {
-        console.warn('⚠️ Fallback to yt-dlp');
+        console.warn('Fallback to yt-dlp');
         ytdlStream = streamWithYtDlp(normalizedUrl, pct => {
           uploadsProgress[uploadId] = { progress: Math.min(99, pct), stage: 'downloading' };
         });
@@ -508,13 +501,12 @@ app.post('/api/download-and-upload', async (req, res) => {
       });
 
       uploadsProgress[uploadId] = { progress: 100, stage: 'done' };
-      console.log(`🎉 Upload complete for ${uploadId}`);
 
       // Auto-clear after 30s
       setTimeout(() => delete uploadsProgress[uploadId], 30000);
 
     } catch (err) {
-      console.error('❌ Upload failed:', err);
+      console.error('Upload failed:', err);
       if (uploadControllers[uploadId]?.aborted) {
         uploadsProgress[uploadId] = { progress: 0, stage: 'canceled' };
       } else {
@@ -591,8 +583,6 @@ app.get('/api/songs', async (req, res) => {
       fields: 'files(id, name, webContentLink, createdTime, size)',
       orderBy: 'createdTime desc'
     });
-
-    console.log(`🎵 Found ${response.data.files.length} songs in Music Player folder ONLY`);
     res.status(200).json(response.data.files);
     
   } catch (error) {
@@ -638,7 +628,6 @@ app.get('/api/stream/:fileId', async (req, res) => {
 
     // Verify file is in Music Player folder
     if (!fileInfo.data.parents || !fileInfo.data.parents.includes(folderId)) {
-      console.log('🚫 Attempted access to file outside Music Player folder');
       return res.status(403).send('Access denied: File not in Music Player folder.');
     }
 
@@ -647,7 +636,6 @@ app.get('/api/stream/:fileId', async (req, res) => {
       return res.status(403).send('Access denied: Not an audio file.');
     }
 
-    console.log('✅ Streaming authorized file from Music Player folder:', fileInfo.data.name);
 
     // Range / full streaming
     const meta = await drive.files.get({ fileId, fields: 'size, mimeType' });
@@ -743,10 +731,9 @@ process.on('unhandledRejection', e => console.error('UnhandledRejection', e));
 process.on('uncaughtException', e => console.error('UncaughtException', e));
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server is running on http://localhost:${PORT}`);
-  console.log(`🎵 Using youtube-dl-exec for reliable downloads`);
+  console.log(` Server is running on http://localhost:${PORT}`);
   
   if (!userTokens) {
-    console.log(`🔐 Authentication required: http://localhost:${PORT}/auth/google`);
+    console.log(`Authentication required: http://localhost:${PORT}/auth/google`);
   }
 });
