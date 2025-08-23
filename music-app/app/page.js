@@ -5,19 +5,16 @@ import {
   Container, 
   Typography, 
   Button, 
-  Grid, 
   Box, 
   CircularProgress,
   Card,
   CardContent,
-  Fade,
-  Backdrop
+  Fade
 } from '@mui/material'
 import { motion } from 'framer-motion'
 import { 
   Add as AddIcon, 
   MusicNote as MusicNoteIcon, 
-  CloudUpload as CloudUploadIcon,
   LibraryMusic as LibraryMusicIcon 
 } from '@mui/icons-material'
 import { useMusicStore } from '../lib/store'
@@ -26,10 +23,7 @@ import SongCard from '../components/SongCard'
 import AuthButton from '../components/AuthButton'
 import toast from 'react-hot-toast'
 import axios from 'axios'
-
-const API_BASE = process.env.NODE_ENV === 'production' 
-  ? 'https://your-api-domain.com' 
-  : 'http://localhost:8000'
+import { API_BASE } from '../lib/config'
 
 export default function Home() {
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -38,8 +32,8 @@ export default function Home() {
   
   const { songs, setSongs, setCurrentSong } = useMusicStore()
 
+  // --- AUTH CHECK ---
   useEffect(() => {
-    // Check for auth success/error from URL params
     const urlParams = new URLSearchParams(window.location.search);
     const authStatus = urlParams.get('auth');
     
@@ -55,10 +49,15 @@ export default function Home() {
   }, [])
 
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchSongs();
-    }
+    if (isAuthenticated) fetchSongs();
   }, [isAuthenticated])
+
+  // Reopen Add Song modal when background toast dispatches the event
+  useEffect(() => {
+    const handleOpenAddSong = () => setIsModalOpen(true)
+    window.addEventListener('open-add-song', handleOpenAddSong)
+    return () => window.removeEventListener('open-add-song', handleOpenAddSong)
+  }, [])
 
   const checkAuthStatus = async () => {
     try {
@@ -70,11 +69,20 @@ export default function Home() {
     }
   }
 
-  const fetchSongs = async () => {
+  // --- FETCH SONGS FROM DRIVE ---
+  const fetchSongs = async (preserveOptimistic = false) => {
     try {
-      setIsLoading(true)
+      // Don't show loading spinner if we already have songs (background refresh)
+      if (songs.length === 0) {
+        setIsLoading(true)
+      }
+      
       const response = await axios.get(`${API_BASE}/api/songs`)
-      setSongs(response.data)
+      const serverSongs = Array.isArray(response.data) ? response.data : []
+      
+      // Simple approach: just set the server songs
+      setSongs(serverSongs)
+      
     } catch (error) {
       console.error('Failed to fetch songs:', error)
       if (error.response?.status === 401) {
@@ -83,44 +91,34 @@ export default function Home() {
       } else {
         toast.error('Failed to load songs')
       }
+      // Don't reset songs array on error if we already have songs
+      if (songs.length === 0) {
+        setSongs([])
+      }
     } finally {
       setIsLoading(false)
     }
   }
 
-  const handleSongClick = (song, index) => {
-    setCurrentSong(song, index)
-  }
+  const handleSongClick = (song, index) => setCurrentSong(song, index)
 
   const handleSongAdded = (newSong) => {
-    setSongs([newSong, ...songs])
-    toast.success(`"${newSong.videoTitle}" added successfully!`)
+    // Simple optimistic update - just add to the beginning
+    setSongs(prev => [newSong, ...(Array.isArray(prev) ? prev : [])])
+    toast.success(`"${newSong.videoTitle || newSong.name}" added!`)
   }
 
   if (!isAuthenticated) {
     return (
-      <Container maxWidth="sm" sx={{ 
-        minHeight: '100vh', 
-        display: 'flex', 
-        alignItems: 'center', 
-        justifyContent: 'center' 
-      }}>
+      <Container maxWidth="sm" sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Fade in timeout={800}>
           <Box textAlign="center">
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
-            >
+            <motion.div animate={{ rotate: 360 }} transition={{ duration: 8, repeat: Infinity, ease: "linear" }}>
               <Box 
                 sx={{
-                  width: 80,
-                  height: 80,
-                  margin: '0 auto 24px',
+                  width: 80, height: 80, margin: '0 auto 24px',
                   background: 'linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%)',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
                   boxShadow: '0 8px 32px rgba(139, 92, 246, 0.3)',
                 }}
               >
@@ -128,10 +126,7 @@ export default function Home() {
               </Box>
             </motion.div>
             
-            <Typography variant="h1" gutterBottom>
-              Music Streaming App
-            </Typography>
-            
+            <Typography variant="h1" gutterBottom>Music Streaming App</Typography>
             <Typography variant="body1" color="text.secondary" sx={{ mb: 4, maxWidth: 400 }}>
               Stream music from YouTube directly to your Google Drive. Authenticate to get started.
             </Typography>
@@ -144,30 +139,23 @@ export default function Home() {
   }
 
   return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
+    <Container maxWidth="md" sx={{ py: 4 }}>
       {/* Header */}
       <Fade in timeout={600}>
         <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
           <Box>
-            <Typography variant="h1" gutterBottom>
-              My Music Library
-            </Typography>
+            <Typography variant="h1" gutterBottom>My Music Library</Typography>
             <Typography variant="body1" color="text.secondary">
-              {songs.length} song{songs.length !== 1 ? 's' : ''} in your collection
+              {Array.isArray(songs) ? songs.length : 0} song{(Array.isArray(songs) ? songs.length : 0) !== 1 ? 's' : ''} in your collection
             </Typography>
           </Box>
-          
           <Button
             variant="contained"
             size="large"
             startIcon={<AddIcon />}
             onClick={() => setIsModalOpen(true)}
             sx={{
-              borderRadius: 3,
-              px: 4,
-              py: 1.5,
-              fontSize: '1.1rem',
-              minWidth: 160,
+              borderRadius: 3, px: 4, py: 1.5, fontSize: '1.1rem', minWidth: 160,
             }}
           >
             Add Song
@@ -175,54 +163,27 @@ export default function Home() {
         </Box>
       </Fade>
 
-      {/* Songs Grid */}
+      {/* Song List */}
       {isLoading ? (
-        <Box display="flex" justifyContent="center" py={8}>
-          <CircularProgress size={60} thickness={4} />
-        </Box>
-      ) : songs.length === 0 ? (
+        <Box display="flex" justifyContent="center" py={8}><CircularProgress size={60} thickness={4} /></Box>
+      ) : !Array.isArray(songs) || songs.length === 0 ? (
         <Fade in timeout={800}>
-          <Card 
-            sx={{ 
-              textAlign: 'center', 
-              py: 8, 
-              px: 4,
-              background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(236, 72, 153, 0.1) 100%)',
-              border: '2px dashed rgba(139, 92, 246, 0.3)',
-            }}
-          >
+          <Card sx={{ textAlign: 'center', py: 8, px: 4, background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(236, 72, 153, 0.1) 100%)', border: '2px dashed rgba(139, 92, 246, 0.3)' }}>
             <CardContent>
               <LibraryMusicIcon sx={{ fontSize: 80, color: 'text.secondary', mb: 2 }} />
-              <Typography variant="h4" gutterBottom>
-                No songs yet
-              </Typography>
-              <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
-                Add your first song from YouTube to get started
-              </Typography>
-              <Button
-                variant="contained"
-                size="large"
-                startIcon={<AddIcon />}
-                onClick={() => setIsModalOpen(true)}
-              >
-                Add Your First Song
-              </Button>
+              <Typography variant="h4" gutterBottom>No songs yet</Typography>
+              <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>Add your first song from YouTube</Typography>
+              <Button variant="contained" size="large" startIcon={<AddIcon />} onClick={() => setIsModalOpen(true)}>Add Your First Song</Button>
             </CardContent>
           </Card>
         </Fade>
       ) : (
         <Fade in timeout={1000}>
-          <Grid container spacing={3}>
+          <Box display="flex" flexDirection="column" gap={2}>
             {songs.map((song, index) => (
-              <Grid item xs={12} sm={6} md={4} lg={3} key={song.id}>
-                <SongCard
-                  song={song}
-                  index={index}
-                  onClick={() => handleSongClick(song, index)}
-                />
-              </Grid>
+              <SongCard key={song.id} song={song} index={index} onClick={() => handleSongClick(song, index)} />
             ))}
-          </Grid>
+          </Box>
         </Fade>
       )}
 
@@ -231,6 +192,7 @@ export default function Home() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSongAdded={handleSongAdded}
+        fetchSongsFromDrive={fetchSongs}  // <--- FIXED HERE
       />
     </Container>
   )

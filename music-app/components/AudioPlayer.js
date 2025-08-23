@@ -24,10 +24,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion'
 import { useMusicStore } from '../lib/store'
 import { formatTime } from '../lib/utils'
-
-const API_BASE = process.env.NODE_ENV === 'production' 
-  ? 'https://your-api-domain.com' 
-  : 'http://localhost:8000'
+import { API_BASE } from '../lib/config'
 
 export default function AudioPlayer() {
   const audioRef = useRef(null)

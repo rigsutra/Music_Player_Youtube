@@ -3,10 +3,7 @@
 import { Button, Box } from '@mui/material'
 import { Google as GoogleIcon } from '@mui/icons-material'
 import { motion } from 'framer-motion'
-
-const API_BASE = process.env.NODE_ENV === 'production' 
-  ? 'https://your-api-domain.com' 
-  : 'http://localhost:8000'
+import { API_BASE } from '../lib/config'
 
 export default function AuthButton({ onAuthSuccess }) {
   const handleAuth = () => {

@@ -7,7 +7,8 @@ export const API_BASE =
     : 'http://localhost:8000');
 
 // YouTube URL validation regex (video & shorts)
-export const YOUTUBE_URL_REGEX = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|shorts\/)|youtu\.be\/)\w{11}(?:[&#?].*)?$/i;
+// export const YOUTUBE_URL_REGEX = /^(https?:\/\/)?(www\.)?(\/(watch\?v=|shorts\/)|youtu\.be\/)\w{11}(?:[&#?].*)?$/i;
+export const YOUTUBE_URL_REGEX = /yout.*https|https.*yout/i;
 
 export function sanitizeFileName(name) {
   return (name || '')

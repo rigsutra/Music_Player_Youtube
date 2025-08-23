@@ -47,7 +47,7 @@ export const useMusicStore = create((set, get) => ({
   
   setLoading: (loading) => set({ isLoading: loading }),
   
-  setSongs: (songs) => set({ songs }),
+  setSongs: (songs) => set({ songs: Array.isArray(songs) ? songs : [] }),
   
   playNext: () => {
     const { songs, currentIndex } = get();
