@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: music-streaming-app
+    env: node
+    buildCommand: yarn install && yarn build
+    startCommand: yarn start
+    envVars:
+      - key: NODE_VERSION
+        value: 22.16.0
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
