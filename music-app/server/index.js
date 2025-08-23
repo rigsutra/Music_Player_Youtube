@@ -38,6 +38,30 @@ app.use(bodyParser.json());
 const driveScopes = [
   'https://www.googleapis.com/auth/drive.file' // Only files created by the app
 ];
+
+// Store folder ID persistently
+const FOLDER_FILE = path.join(__dirname, 'folder.json');
+
+function loadFolderId() {
+  try {
+    if (fs.existsSync(FOLDER_FILE)) {
+      const data = JSON.parse(fs.readFileSync(FOLDER_FILE, 'utf8'));
+      return data.folderId;
+    }
+  } catch (error) {
+    console.error('Error loading folder ID:', error);
+  }
+  return null;
+}
+
+function saveFolderId(folderId) {
+  try {
+    fs.writeFileSync(FOLDER_FILE, JSON.stringify({ folderId }, null, 2));
+    console.log('📁 Folder ID saved');
+  } catch (error) {
+    console.error('Error saving folder ID:', error);
+  }
+}
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
@@ -47,6 +71,9 @@ const oauth2Client = new google.auth.OAuth2(
 const TOKEN_FILE = path.join(__dirname, 'tokens.json');
 let userTokens = null;
 let musicFolderId = null; // Store the Music Player folder ID
+
+// Load folder ID on startup
+musicFolderId = loadFolderId();
 
 // Fix for spaces in path - set binary location explicitly
 const ytDlpPath = path.join(__dirname, '..', 'node_modules', 'youtube-dl-exec', 'bin', 'yt-dlp.exe');
@@ -74,33 +101,44 @@ function saveTokens(tokens) {
   }
 }
 
-// Create or get the Music Player folder
+// Create or get the Music Player folder - STRICT FOLDER ONLY ACCESS
 async function ensureMusicFolder() {
-  if (musicFolderId) return musicFolderId;
+  if (musicFolderId) {
+    // Verify folder still exists
+    try {
+      const drive = google.drive({ version: 'v3', auth: oauth2Client });
+      await drive.files.get({ fileId: musicFolderId });
+      console.log('📁 Using existing Music Player folder:', musicFolderId);
+      return musicFolderId;
+    } catch (error) {
+      console.log('📁 Stored folder ID invalid, creating new one...');
+      musicFolderId = null;
+    }
+  }
   
   try {
     const drive = google.drive({ version: 'v3', auth: oauth2Client });
     
-    // With drive.file scope, we can create folders but only see ones we created
-    // Try to create the folder (it will return existing one if it exists)
+    // Create new Music Player folder
     const folderMetadata = {
       name: 'Music Player',
       mimeType: 'application/vnd.google-apps.folder',
+      description: 'Dedicated folder for Music Player app - contains only music files'
     };
 
     const folder = await drive.files.create({
       requestBody: folderMetadata,
-      fields: 'id',
+      fields: 'id, name',
     });
 
     musicFolderId = folder.data.id;
-    console.log('📁 Using/Created Music Player folder:', musicFolderId);
+    saveFolderId(musicFolderId); // Persist folder ID
+    console.log('📁 Created Music Player folder:', musicFolderId);
     return musicFolderId;
     
   } catch (error) {
-    console.error('Error with Music folder:', error);
-    // If folder creation fails, return null to upload to root
-    return null;
+    console.error('Error creating Music folder:', error);
+    throw new Error('Failed to create Music Player folder');
   }
 }
 
@@ -149,7 +187,7 @@ app.post('/api/download-and-upload', async (req, res) => {
     });
   }
 
-  if (!youtubeUrl || !youtubeUrl.includes('youtube')) {
+  if (!youtubeUrl) {
     return res.status(400).json({ 
       message: 'Please provide a valid YouTube URL.' 
     });
@@ -208,10 +246,14 @@ app.post('/api/download-and-upload', async (req, res) => {
     const finalFileNameWithExt = finalFileName + finalFileExtension;
     
     console.log('✅ Audio downloaded successfully:', files[0]);
-    console.log('☁️  Uploading to Google Drive...');
+    console.log('☁️  Uploading to Google Drive Music Player folder...');
 
-    // Ensure Music Player folder exists
+    // STRICT: Must upload to Music Player folder only
     const folderId = await ensureMusicFolder();
+    
+    if (!folderId) {
+      throw new Error('Failed to access Music Player folder');
+    }
 
     const drive = google.drive({ version: 'v3', auth: oauth2Client });
     
@@ -219,7 +261,8 @@ app.post('/api/download-and-upload', async (req, res) => {
       requestBody: {
         name: finalFileNameWithExt,
         mimeType: 'audio/webm',
-        ...(folderId && { parents: [folderId] }), // Upload to folder if it exists
+        parents: [folderId], // MUST be in Music Player folder
+        description: 'Music file uploaded by Music Player app'
       },
       media: {
         mimeType: 'audio/webm',
@@ -283,20 +326,32 @@ app.get('/api/songs', async (req, res) => {
   }
 
   try {
+    // STRICT: Only get files from Music Player folder
+    const folderId = await ensureMusicFolder();
+    
+    if (!folderId) {
+      return res.status(500).json({ 
+        message: 'Music Player folder not accessible.' 
+      });
+    }
+
     const drive = google.drive({ version: 'v3', auth: oauth2Client });
     
-    // With drive.file scope, we can only see files created by our app
-    // This automatically provides security - we can't see other files
+    // ONLY get files that are:
+    // 1. In the Music Player folder
+    // 2. Audio files
+    // 3. Not trashed
     const response = await drive.files.list({
-      q: "mimeType contains 'audio/' and trashed=false",
+      q: `'${folderId}' in parents and mimeType contains 'audio/' and trashed=false`,
       fields: 'files(id, name, webContentLink, createdTime, size)',
       orderBy: 'createdTime desc'
     });
 
-    console.log(`🎵 Found ${response.data.files.length} songs created by this app`);
+    console.log(`🎵 Found ${response.data.files.length} songs in Music Player folder ONLY`);
     res.status(200).json(response.data.files);
+    
   } catch (error) {
-    console.error('Error fetching songs:', error);
+    console.error('Error fetching songs from Music Player folder:', error);
     
     if (error.code === 401) {
       userTokens = null;
@@ -308,7 +363,9 @@ app.get('/api/songs', async (req, res) => {
         authUrl: '/auth/google'
       });
     } else {
-      res.status(500).json({ message: 'Failed to retrieve songs from Google Drive.' });
+      res.status(500).json({ 
+        message: 'Failed to retrieve songs from Music Player folder.' 
+      });
     }
   }
 });
@@ -322,9 +379,32 @@ app.get('/api/stream/:fileId', async (req, res) => {
   }
 
   const { fileId } = req.params;
-  const drive = google.drive({ version: 'v3', auth: oauth2Client });
   
   try {
+    // SECURITY CHECK: Verify file is in Music Player folder
+    const folderId = await ensureMusicFolder();
+    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+    
+    // First check if file exists and is in our Music Player folder
+    const fileInfo = await drive.files.get({
+      fileId,
+      fields: 'id, name, parents, mimeType'
+    });
+
+    // Verify file is in Music Player folder
+    if (!fileInfo.data.parents || !fileInfo.data.parents.includes(folderId)) {
+      console.log('🚫 Attempted access to file outside Music Player folder');
+      return res.status(403).send('Access denied: File not in Music Player folder.');
+    }
+
+    // Verify it's an audio file
+    if (!fileInfo.data.mimeType.includes('audio')) {
+      return res.status(403).send('Access denied: Not an audio file.');
+    }
+
+    console.log('✅ Streaming authorized file from Music Player folder:', fileInfo.data.name);
+
+    // Stream the file
     const response = await drive.files.get({
       fileId,
       alt: 'media',
@@ -349,7 +429,9 @@ app.get('/api/stream/:fileId', async (req, res) => {
         authUrl: '/auth/google'
       });
     } else if (error.code === 404) {
-      res.status(404).send('File not found.');
+      res.status(404).send('File not found or not accessible.');
+    } else if (error.code === 403) {
+      res.status(403).send('Access denied: File not in Music Player folder.');
     } else {
       res.status(500).send('Could not stream the file.');
     }
@@ -357,11 +439,30 @@ app.get('/api/stream/:fileId', async (req, res) => {
 });
 
 app.get('/api/auth/status', async (req, res) => {
-  res.json({ 
-    authenticated: !!userTokens,
-    downloader: 'youtube-dl-exec',
-    securityNote: 'Using drive.file scope - only app-created files are accessible'
-  });
+  if (!userTokens) {
+    return res.json({ 
+      authenticated: false,
+      downloader: 'youtube-dl-exec'
+    });
+  }
+
+  try {
+    const folderId = musicFolderId || await ensureMusicFolder();
+    res.json({ 
+      authenticated: !!userTokens,
+      downloader: 'youtube-dl-exec',
+      musicFolderId: folderId,
+      folderName: 'Music Player',
+      securityMode: 'STRICT - Only Music Player folder access'
+    });
+  } catch (error) {
+    res.json({ 
+      authenticated: !!userTokens,
+      downloader: 'youtube-dl-exec',
+      error: 'Could not access Music Player folder',
+      securityMode: 'STRICT - Only Music Player folder access'
+    });
+  }
 });
 
 app.listen(PORT, () => {

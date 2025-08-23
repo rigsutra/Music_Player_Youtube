@@ -19,12 +19,20 @@ export const useMusicStore = create((set, get) => ({
   
   // Actions
   setCurrentSong: (song, index = -1) => {
-    set({ 
-      currentSong: song, 
-      currentIndex: index,
-      isPlayerVisible: true,
-      isLoading: true
-    });
+    const { currentSong, isPlaying } = get();
+    // If the same song is clicked, just toggle play/pause
+    if (currentSong?.id === song.id) {
+      set({ isPlaying: !isPlaying });
+    } else {
+      // If a new song is clicked, set it and start playing
+      set({
+        currentSong: song,
+        currentIndex: index,
+        isPlayerVisible: true,
+        isLoading: true,
+        isPlaying: true, // This is the key change
+      });
+    }
   },
   
   setIsPlaying: (playing) => set({ isPlaying: playing }),
