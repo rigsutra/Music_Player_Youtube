@@ -28,8 +28,8 @@ const PORT = process.env.PORT || 8000;
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   const allowedOrigins = [
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
+   process.env.NEXT_PUBLIC_PROD_FRONTEND_API,
+     'http://127.0.0.1:3000',
     'https://your-domain.com' // Add your production domain here
   ];
   
