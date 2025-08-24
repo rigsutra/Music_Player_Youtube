@@ -1,19 +1,19 @@
+// components/AudioPlayer.js - With API client
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { 
-  Box, 
-  IconButton, 
-  Typography, 
-  Slider, 
+import {
+  Box,
+  IconButton,
+  Typography,
+  Slider,
   Paper,
-  Collapse,
-  Fade
+  Collapse
 } from '@mui/material'
-import { 
-  PlayArrow as PlayIcon, 
-  Pause as PauseIcon, 
-  SkipNext as ForwardIcon, 
+import {
+  PlayArrow as PlayIcon,
+  Pause as PauseIcon,
+  SkipNext as ForwardIcon,
   SkipPrevious as BackwardIcon,
   VolumeUp as VolumeUpIcon,
   VolumeOff as VolumeOffIcon,
@@ -25,11 +25,12 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useMusicStore } from '../lib/store'
 import { formatTime } from '../lib/utils'
 import { API_BASE } from '../lib/config'
+import { authService } from '../lib/auth'
 
 export default function AudioPlayer() {
   const audioRef = useRef(null)
   const [isExpanded, setIsExpanded] = useState(false)
-  
+
   const {
     currentSong,
     isPlaying,
@@ -51,19 +52,26 @@ export default function AudioPlayer() {
     seekTo
   } = useMusicStore()
 
-  // Initialize audio element
+  // Initialize audio element with JWT token
   useEffect(() => {
     if (currentSong && audioRef.current) {
       const audio = audioRef.current
-      audio.src = `${API_BASE}/api/stream/${currentSong.id}`
-      
+      const token = authService.getToken()
+
+      // Add JWT token as a query parameter for audio streaming
+      const streamUrl = token
+        ? `${API_BASE}/api/songs/stream/${currentSong.id}?token=${encodeURIComponent(token)}`
+        : `${API_BASE}/api/songs/stream/${currentSong.id}`
+
+      audio.src = streamUrl
+
       if (isPlaying) {
         audio.play().catch(console.error)
       }
     }
   }, [currentSong])
 
-  // Audio event listeners
+  // Audio event listeners (same as before)
   useEffect(() => {
     const audio = audioRef.current
     if (!audio) return
@@ -119,7 +127,7 @@ export default function AudioPlayer() {
     }
   }, [volume, isMuted])
 
-  const handleSeek = (event, newValue) => {
+  const handleSeek = (_, newValue) => {
     const seekTime = (newValue / 100) * duration
     seekTo(seekTime)
     if (audioRef.current) {
@@ -127,7 +135,7 @@ export default function AudioPlayer() {
     }
   }
 
-  const handleVolumeChange = (event, newValue) => {
+  const handleVolumeChange = (_, newValue) => {
     setVolume(newValue / 100)
     setMuted(false)
   }
@@ -140,9 +148,9 @@ export default function AudioPlayer() {
   return (
     <>
       <audio ref={audioRef} preload="metadata" />
-      
+
       <AnimatePresence>
-        <motion.div 
+        <motion.div
           initial={{ y: 100 }}
           animate={{ y: 0 }}
           exit={{ y: 100 }}
@@ -207,7 +215,7 @@ export default function AudioPlayer() {
                     <IconButton onClick={playPrevious} size="small" sx={{ color: 'text.secondary' }}>
                       <BackwardIcon />
                     </IconButton>
-                    
+
                     <IconButton
                       onClick={togglePlayPause}
                       disabled={isLoading}
@@ -237,7 +245,7 @@ export default function AudioPlayer() {
                         <PlayIcon />
                       )}
                     </IconButton>
-                    
+
                     <IconButton onClick={playNext} size="small" sx={{ color: 'text.secondary' }}>
                       <ForwardIcon />
                     </IconButton>
@@ -286,10 +294,10 @@ export default function AudioPlayer() {
 
                   {/* Main Controls */}
                   <Box display="flex" justifyContent="center" alignItems="center" gap={2} mb={3}>
-                    <IconButton 
+                    <IconButton
                       onClick={playPrevious}
-                      sx={{ 
-                        width: 56, 
+                      sx={{
+                        width: 56,
                         height: 56,
                         color: 'text.secondary',
                         '&:hover': { color: 'primary.main' },
@@ -297,7 +305,7 @@ export default function AudioPlayer() {
                     >
                       <BackwardIcon sx={{ fontSize: 28 }} />
                     </IconButton>
-                    
+
                     <IconButton
                       onClick={togglePlayPause}
                       disabled={isLoading}
@@ -329,11 +337,11 @@ export default function AudioPlayer() {
                         <PlayIcon sx={{ fontSize: 36 }} />
                       )}
                     </IconButton>
-                    
-                    <IconButton 
+
+                    <IconButton
                       onClick={playNext}
-                      sx={{ 
-                        width: 56, 
+                      sx={{
+                        width: 56,
                         height: 56,
                         color: 'text.secondary',
                         '&:hover': { color: 'primary.main' },
@@ -351,11 +359,11 @@ export default function AudioPlayer() {
                     >
                       {isMuted || volume === 0 ? <VolumeOffIcon /> : <VolumeUpIcon />}
                     </IconButton>
-                    
+
                     <Slider
                       value={isMuted ? 0 : volume * 100}
                       onChange={handleVolumeChange}
-                      sx={{ 
+                      sx={{
                         maxWidth: 120,
                         '& .MuiSlider-thumb': {
                           width: 16,

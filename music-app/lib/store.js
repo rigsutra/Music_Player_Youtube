@@ -59,7 +59,8 @@ export const useMusicStore = create((set, get) => ({
     set({ 
       currentSong: nextSong, 
       currentIndex: nextIndex,
-      isLoading: true
+      isLoading: true,
+      isPlaying: true
     });
   },
   
@@ -73,7 +74,8 @@ export const useMusicStore = create((set, get) => ({
     set({ 
       currentSong: prevSong, 
       currentIndex: prevIndex,
-      isLoading: true
+      isLoading: true,
+      isPlaying: true
     });
   },
   

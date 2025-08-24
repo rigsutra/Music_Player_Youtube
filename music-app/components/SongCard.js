@@ -5,18 +5,25 @@ import { PlayArrow as PlayIcon, Pause as PauseIcon, FavoriteBorder, Favorite, Mu
 import { motion } from 'framer-motion'
 import { useMusicStore } from '../lib/store'
 import { formatFileSize } from '../lib/utils'
+import useUploadProgress from '../hooks/useUploadProgress'
 
-export default function SongCard({ song, index, onClick, onToggleLike }) {
+export default function SongCard({ song, index, onClick, onToggleLike, onUploadComplete, totalSongs }) {
   const { currentSong, isPlaying, isLoading } = useMusicStore()
   const isCurrentSong = currentSong?.id === song.id
   const isCurrentlyPlaying = isCurrentSong && isPlaying
   const isCurrentlyLoading = isCurrentSong && isLoading
+
+  // Track upload progress if this is an uploading song
+  useUploadProgress(song.uploadId)
 
   // Handle provisional/uploading songs
   const isUploading = song.uploadId && song.stage !== 'done'
   const isOptimistic = song.isOptimistic
   const isProcessing = isUploading || isOptimistic
   const displayName = song.name?.replace(/\.(webm|mp3|m4a)$/, '') || song.videoTitle || 'Unknown Song'
+
+  // Calculate display number (newest songs get highest numbers)
+  const displayNumber = totalSongs - index
 
   const handlePlayPause = (e) => {
     e.stopPropagation()
@@ -41,19 +48,19 @@ export default function SongCard({ song, index, onClick, onToggleLike }) {
           borderRadius: 2,
           background: isCurrentSong
             ? 'linear-gradient(90deg, rgba(139,92,246,0.2), rgba(236,72,153,0.2))'
-            : isOptimistic 
+            : isOptimistic
               ? 'linear-gradient(90deg, rgba(251,191,36,0.1), rgba(245,158,11,0.1))'
               : 'rgba(31,41,55,0.7)',
-          border: isCurrentSong 
-            ? '2px solid rgba(139,92,246,0.5)' 
+          border: isCurrentSong
+            ? '2px solid rgba(139,92,246,0.5)'
             : isOptimistic
               ? '1px solid rgba(251,191,36,0.3)'
               : '1px solid rgba(75,85,99,0.2)',
           cursor: 'pointer',
-          '&:hover': { 
-            background: isOptimistic 
+          '&:hover': {
+            background: isOptimistic
               ? 'linear-gradient(90deg, rgba(251,191,36,0.15), rgba(245,158,11,0.15))'
-              : 'rgba(55,65,81,0.85)' 
+              : 'rgba(55,65,81,0.85)'
           },
           transition: 'all 0.3s ease',
         }}
@@ -62,7 +69,7 @@ export default function SongCard({ song, index, onClick, onToggleLike }) {
         {/* Left: Index & Play Button */}
         <Box display="flex" alignItems="center" gap={2} minWidth={80}>
           <Typography variant="body2" color="text.secondary" width={20} textAlign="center">
-            {index}.
+            {displayNumber}.
           </Typography>
           <IconButton
             onClick={handlePlayPause}
@@ -72,7 +79,7 @@ export default function SongCard({ song, index, onClick, onToggleLike }) {
               height: 44,
               background: isCurrentSong
                 ? 'linear-gradient(135deg, #8b5cf6, #ec4899)'
-                : isProcessing 
+                : isProcessing
                   ? 'rgba(75,85,99,0.4)'
                   : 'rgba(75,85,99,0.8)',
               borderRadius: '50%',
@@ -98,7 +105,7 @@ export default function SongCard({ song, index, onClick, onToggleLike }) {
 
         {/* Center: Song Info */}
         <Box flex={1} minWidth={0} px={1}>
-          <Typography variant="body1" fontWeight={isCurrentSong ? 600 : 400} noWrap 
+          <Typography variant="body1" fontWeight={isCurrentSong ? 600 : 400} noWrap
             sx={{ opacity: isProcessing ? 0.7 : 1 }}
           >
             {songName} {isProcessing && (isOptimistic ? '(Processing...)' : '(Uploading...)')}
@@ -143,7 +150,7 @@ export default function SongCard({ song, index, onClick, onToggleLike }) {
               }}
             />
           )}
-          <IconButton 
+          <IconButton
             onClick={(e) => { e.stopPropagation(); onToggleLike?.(song) }}
             disabled={isProcessing}
           >

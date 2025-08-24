@@ -3,15 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-     "node": "22.x"
+    "node": "22.x"
   },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "node server/index.js",
+    "start": "nodemon server/server.js",
     "next-start": "next start",
     "lint": "next lint",
-    "server": "node server/index.js"
+    "server": "nodemon server/server.js"
   },
   "dependencies": {
     "@distube/ytdl-core": "^4.16.12",
@@ -25,17 +25,21 @@
     "body-parser": "^2.2.0",
     "clsx": "^2.0.0",
     "dotenv": "^17.2.1",
-    "express": "^5.1.0",
+    "express": "^4.18.2",
     "express-sse": "^1.0.0",
     "framer-motion": "^10.16.16",
     "googleapis": "^157.0.0",
+    "jsonwebtoken": "^9.0.2",
     "next": "14.0.4",
     "react": "^18",
     "react-dom": "^18",
     "react-hot-toast": "^2.4.1",
     "react-icons": "^4.12.0",
     "youtube-dl-exec": "^2.5.8",
-    "zustand": "^4.4.7"
+    "zustand": "^4.4.7",
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "mongoose": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^20",
@@ -46,6 +50,7 @@
     "eslint-config-next": "14.0.4",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.12",
-    "typescript": "^5"
+    "typescript": "^5",
+    "nodemon": "^3.1.10"
   }
 }
