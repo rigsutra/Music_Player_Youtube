@@ -50,7 +50,7 @@ app.use((req, res, next) => {
 
 app.use(bodyParser.json());
 
-// --- Basic in-memory rate limiter (IP based) ---
+// --- Basic in-memory rate limiter (IP based)
 const rateWindowMs = 60_000; // 1 min
 const maxReqPerWindow = 120;
 const ipHits = new Map();
