@@ -414,6 +414,11 @@ app.get('/auth/google/callback', async (req, res) => {
 
 // const ytDlpPath = path.join(__dirname, '..', 'node_modules', 'youtube-dl-exec', 'bin', 'yt-dlp');
 
+
+app.get("/", (req, res) => {
+  res.send("Welcome to the Music Streaming App");
+});
+
 function normalizeYoutubeUrl(url) {
   if (!url) return url;
   const match = url.match(/(?:youtu\.be\/|v=|shorts\/)([a-zA-Z0-9_-]{11})/);
