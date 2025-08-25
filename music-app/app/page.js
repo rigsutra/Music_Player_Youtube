@@ -64,7 +64,18 @@ export default function Home() {
       const response = await apiClient.get('/api/songs')
       const serverSongs = Array.isArray(response.data) ? response.data : []
 
-      setSongs(serverSongs)
+      // Preserve optimistic songs (songs that are still uploading)
+      const optimisticSongs = songs.filter(song => song.isOptimistic)
+      
+      // Merge server songs with optimistic songs, removing duplicates by uploadId
+      const mergedSongs = [
+        ...optimisticSongs.filter(optimistic => 
+          !serverSongs.some(server => server.uploadId === optimistic.uploadId)
+        ),
+        ...serverSongs
+      ]
+
+      setSongs(mergedSongs)
 
     } catch (error) {
       console.error('Failed to fetch songs:', error)
@@ -77,20 +88,55 @@ export default function Home() {
     } finally {
       setIsLoading(false)
     }
-  }, [songs.length, setSongs])
+  }, [songs, setSongs])
 
   // Listen for upload completion to refresh song list
   useEffect(() => {
-    const handleUploadComplete = (event) => {
+    const handleUploadComplete = async (event) => {
+      const { uploadId, success, error, googleFileId, videoTitle } = event.detail
       console.log('Upload completed:', event.detail)
-      // Refresh the song list to get the real song data from the server
-      fetchSongs()
-      toast.success('Song upload completed!')
+
+      if (success) {
+        // Try to fetch the songs several times (Drive can be eventually consistent)
+        const maxRetries = 5
+        let attempts = 0
+        let foundOnServer = false
+
+        while (attempts < maxRetries && !foundOnServer) {
+          try {
+            await fetchSongs()
+            // After fetch, read the latest songs from the store to avoid stale closure
+            const latestSongs = useMusicStore.getState().songs || []
+            const found = latestSongs.some(s => s.uploadId === uploadId || s.id === (googleFileId || s.id))
+            if (found) {
+              foundOnServer = true
+              break
+            }
+          } catch (e) {
+            // ignore and retry
+          }
+          attempts++
+          // small delay between attempts
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise(r => setTimeout(r, 1200))
+        }
+
+        if (!foundOnServer) {
+          // If Drive hasn't listed the file yet, replace optimistic item locally using event data
+          setSongs(prev => prev.map(s => s.uploadId === uploadId ? ({ ...s, stage: 'done', id: googleFileId || s.id, videoTitle: videoTitle || s.videoTitle }) : s))
+        }
+
+        toast.success('Song upload completed!')
+      } else {
+        // Remove the optimistic song on failure
+        setSongs(prev => prev.filter(song => song.uploadId !== uploadId))
+        toast.error(`Upload failed: ${error || 'Unknown error'}`)
+      }
     }
 
     window.addEventListener('upload-complete', handleUploadComplete)
     return () => window.removeEventListener('upload-complete', handleUploadComplete)
-  }, [fetchSongs])
+  }, [fetchSongs, setSongs])
 
   const handleSongClick = (song, index) => setCurrentSong(song, index)
 

@@ -2,6 +2,7 @@
 const express = require('express');
 const { authenticateUser } = require('../middleware/auth');
 const googleDriveService = require('../services/googleDriveService');
+const Upload = require('../models/Upload');
 
 const router = express.Router();
 
@@ -12,8 +13,31 @@ router.get('/', authenticateUser, async (req, res) => {
     
     const files = await googleDriveService.listUserFiles(req.userId);
     
-    console.log(`✅ Retrieved ${files.length} songs for user ${req.user.googleId}`);
-    res.json(files);
+    // Get upload records for completed files to include uploadId
+    const uploads = await Upload.find({
+      userId: req.userId,
+      stage: 'done',
+      googleFileId: { $in: files.map(f => f.id) }
+    }).select('uploadId googleFileId videoTitle');
+    
+    // Create lookup map
+    const uploadMap = uploads.reduce((map, upload) => {
+      map[upload.googleFileId] = {
+        uploadId: upload.uploadId,
+        videoTitle: upload.videoTitle
+      };
+      return map;
+    }, {});
+    
+    // Enhance files with upload info
+    const enhancedFiles = files.map(file => ({
+      ...file,
+      uploadId: uploadMap[file.id]?.uploadId || null,
+      videoTitle: uploadMap[file.id]?.videoTitle || file.name
+    }));
+    
+    console.log(`✅ Retrieved ${enhancedFiles.length} songs for user ${req.user.googleId}`);
+    res.json(enhancedFiles);
     
   } catch (error) {
     console.error(`❌ Error fetching songs for user ${req.userId}:`, error.message);

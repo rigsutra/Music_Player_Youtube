@@ -1,93 +1,98 @@
-Music Streaming App (YouTube -> Google Drive)
+# Music Streaming App (YouTube → Google Drive)
 
-Project overview
+Lightweight Next.js + Express app to download audio from YouTube, upload it to a Google Drive "Music Player" folder, and stream from a simple web UI.
 
-This project is a lightweight Next.js + Express app that lets you download audio from YouTube and store it in a Google Drive "Music Player" folder, then stream those files in a simple web UI.
+## Core features
 
-The app includes:
+- Next.js frontend (`app/`) with Material UI + framer-motion
+- Express backend (`server/`) handling Google OAuth, download/upload flows, and an SSE progress stream
+- Optimistic UI: uploads show immediately in the library while they process in the background
+- Client stores using Zustand for music state and upload progress
 
-- Next.js frontend (app dir) using Material UI and framer-motion for the UI/animations
-- Express server in `server/` that handles Google OAuth, downloading from YouTube, uploading to Google Drive, and an SSE endpoint for progress
-- A small Zustand store for client-side state
+## Repository layout (important files)
 
-Repository structure
+- `app/` — Next.js pages and client UI (home page in `app/page.js`)
+- `app/components/` — UI components (AddSongModal.jsx, SongCard.js, AudioPlayer.js, AuthButton.js)
+- `hooks/` — client hooks (e.g. `useUploadProgress.js`)
+- `lib/` — client helpers and config (`api.js`, `config.js`, `store.js`, `uploadStore.js`)
+- `server/` — Express app and supporting code (routes, services, models)
+  - `server/routes/upload.js` — start uploads, progress endpoint, SSE stream
+  - `server/routes/songs.js` — list user files (enhanced with uploadId mapping)
+  - `server/services/` — Google Drive helpers
 
-- `app/` - Next.js client pages and components
-  - `page.js` - Home page with library and Add Song modal
-  - `components/` - UI components (AddSongModal.jsx, SongCard.js, AuthButton, AudioPlayer, etc.)
-- `lib/` - client helpers and config (API_BASE, utils, store)
-- `server/` - Express server and helpers
-  - `index.js` - main server that handles Google OAuth and upload flow
-  - `tokens.json` - (ignored in git) persistent user tokens (local dev)
-  - `folder.json` - stores the Music Player folder id
-- `.next/`, `node_modules/`, `dist/` - build and dependency output (ignored)
+## Quick run (Windows PowerShell)
 
-Important files
-
-- `package.json` - scripts and dependencies. Key scripts:
-  - `npm run dev` - run Next.js dev server
-  - `npm run build` - build Next.js app
-  - `npm run start` or `npm run server` - start the Express server
-
-Environment variables (required)
-
-The server uses Google OAuth and requires the following environment variables (set in `.env` for local dev):
-
-- `GOOGLE_CLIENT_ID` - Google OAuth client id
-- `GOOGLE_CLIENT_SECRET` - Google OAuth client secret
-- `GOOGLE_REDIRECT_URI` - OAuth redirect URI (must match Google console)
-
-Security & tokens
-
-- `server/tokens.json` and `tokens.json` are included in `.gitignore` and used to store OAuth tokens locally for development.
-- Never commit `tokens.json`, `.env`, or any secret files.
-
-How to run locally (Windows PowerShell)
-
-1. Install dependencies:
+1. Install dependencies
 
 ```powershell
 npm install
 ```
 
-2. Create a `.env` file in the project root with the required Google credentials.
+2. Create `.env` in the project root with required Google credentials:
 
-3. Start the Next.js dev server:
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_REDIRECT_URI`
+
+3. Start the frontend (Next.js dev):
 
 ```powershell
 npm run dev
 ```
 
-4. In another terminal, start the Express server for Google Drive handling (if needed):
+4. Start the backend Express server in another terminal:
 
 ```powershell
 npm run server
+# or: npm start (server uses port 8000 by default)
 ```
 
-Notes: the Express server binds to a port (default 8000). The Next.js front-end expects `API_BASE` in `lib/config.js` to point to the server (e.g., `http://localhost:8000`).
+> Note: `API_BASE` in `lib/config.js` should point to the backend (e.g. `http://localhost:8000`). Next.js may pick a different port if 3000 is in use.
 
-Common issues & troubleshooting
+## How uploads and UI synchronization work
 
-- "songs.map is not a function": ensure the `/api/songs` endpoint returns an array (server returns `response.data.files`) and frontend sets `songs` to an array. The app includes defensive checks to avoid mapping non-arrays.
-- Modal doesn't reopen after hiding: the toast now dispatches `open-add-song` and the page listens and opens the modal. If toast click doesn't reopen, check browser console for errors.
-- Stuck background toast: closing and re-opening the page clears toasts. The code dismisses toasts when upload completes.
-- Google OAuth problems: check redirect URI and that OAuth tokens are saved to `server/tokens.json`.
+- When you start an upload the frontend:
+  - Creates an optimistic song row (with `uploadId` and `stage`) and adds it to the UI immediately
+  - Adds the upload to `uploadStore` so progress can be reconciled in real-time
+  - Subscribes to an SSE stream (`/api/upload/progress/:uploadId/stream`) via `useUploadProgress`
+- The SSE stream sends JSON messages with fields: `progress`, `stage`, `googleFileId`, `videoTitle`, `fileName`, `error`.
+- The SSE hook updates `uploadStore`, dispatches a normalized `upload-complete` browser event (with `{ uploadId, success, googleFileId?, videoTitle? }`) when finished, and triggers a UI reconciliation.
+- The home page listens for `upload-complete` and attempts to `fetchSongs()` several times (short retries) to account for Google Drive eventual consistency. If Drive still doesn't list the file, the UI will update the optimistic item locally using the `googleFileId`/`videoTitle` supplied by SSE.
 
-Development tips
+## Debugging tips
 
-- The project uses Node 22.x (see `engines` in `package.json`). Use nvm or n to match Node version.
-- To inspect server logs, run `node server/index.js` (or `npm run server`) and watch console output.
+- Open browser devtools console and look for these logs added to aid debugging:
+  - `🎯 Adding upload to store:` when optimistic uploads are created
+  - `📡 SSE message received:` when SSE messages arrive
+  - `🔄 Updating upload in store:` when the uploadStore is updated
+  - `🎵 Song card state:` what the UI sees for each song
+  - `🎉 Dispatching upload-complete (success):` when an upload finishes
+- Server logs: run the backend and watch the console output for upload processing logs
+- If you see 'Upload done' in MongoDB but the UI still shows "Uploading":
+  - Confirm the SSE stream for that `uploadId` emitted a `done` message including `googleFileId`
+  - Confirm the frontend received the SSE and `uploadStore` updated (look for `🔄 Updating upload in store`)
 
-What I changed recently (notes for reviewers)
+## Recent changes
 
-- Improved robustness around optimistic updates and background refresh. The app now avoids resetting the UI during background fetches so the library doesn't flash "no songs" while a background refetch is in progress.
-- Fixed modal open/close race: hiding the upload modal now calls `onClose()` and the toast dispatches an `open-add-song` event which `app/page.js` listens to and reopens the modal when the user clicks the toast.
+- Normalized SSE event payloads and improved client-side handling so `upload-complete` events have a consistent shape.
+- Introduced `uploadStore` (Zustand) and wired `useUploadProgress` to update it from SSE messages.
+- Changed the Add Song flow to create optimistic items with a `stage` and register them in `uploadStore`.
+- Home page now merges optimistic items with server-provided songs via `uploadId` and retries fetches briefly to handle Drive eventual consistency.
 
-If you'd like
+## Troubleshooting common issues
 
-- I can add a short debug route to show the server's current `tokens.json` contents (local only) for easier troubleshooting.
-- Implement automatic retries for background refresh if the file isn't present yet.
+- If the frontend cannot connect to SSE (`/api/upload/progress/:uploadId/stream`) — ensure backend is running on `API_BASE` and correct CORS/auth are configured.
+- If Google OAuth fails, check redirect URI in Google console and `.env` values.
 
-License
+## Extras
 
-This repository is provided without a license. Add one if you plan to share it publicly.
+- `debug.md` (added to repo) contains a quick checklist for testing the upload flow locally.
+
+## Next steps I can do for you
+
+- Add an explicit debug route that returns the server's `Upload` records (development only) so you can inspect upload state without accessing Mongo directly.
+- Add a small automated test that simulates SSE messages and asserts the store and UI update correctly.
+
+## License
+
+No license included. Add one if you plan to publish.

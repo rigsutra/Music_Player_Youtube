@@ -17,6 +17,7 @@ export default function useUploadProgress(uploadId, onComplete) {
       if (cancelled) return;
       try {
         const data = JSON.parse(e.data);
+        console.log('📡 SSE message received:', uploadId, data);
         updateUpload(uploadId, data);
         
         if (data.stage === 'done') {
@@ -24,13 +25,28 @@ export default function useUploadProgress(uploadId, onComplete) {
           if (onComplete) {
             onComplete(uploadId, data);
           }
-          // Dispatch a global event for song list refresh
-          window.dispatchEvent(new CustomEvent('upload-complete', { 
-            detail: { uploadId, data } 
+
+          // Dispatch a global event for song list refresh with a normalized payload
+          // Include googleFileId and videoTitle when available so the UI can immediately
+          // reconcile optimistic entries even if Drive hasn't listed the file yet.
+          console.log('🎉 Dispatching upload-complete (success):', uploadId, data);
+          window.dispatchEvent(new CustomEvent('upload-complete', {
+            detail: { uploadId, success: true, googleFileId: data.googleFileId, videoTitle: data.videoTitle }
           }));
+
           evtSource.close();
           setTimeout(() => removeUpload(uploadId), 5000);
         } else if (data.stage === 'error') {
+          // Notify completion handler of failure
+          if (onComplete) {
+            onComplete(uploadId, data);
+          }
+
+          // Dispatch normalized failure event
+          window.dispatchEvent(new CustomEvent('upload-complete', {
+            detail: { uploadId, success: false, error: data.error || 'error' }
+          }));
+
           evtSource.close();
           setTimeout(() => removeUpload(uploadId), 5000);
         }

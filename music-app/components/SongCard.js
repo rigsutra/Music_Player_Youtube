@@ -6,6 +6,7 @@ import { motion } from 'framer-motion'
 import { useMusicStore } from '../lib/store'
 import { formatFileSize } from '../lib/utils'
 import useUploadProgress from '../hooks/useUploadProgress'
+import { useUploadStore } from '../lib/uploadStore'
 
 export default function SongCard({ song, index, onClick, onToggleLike, onUploadComplete, totalSongs }) {
   const { currentSong, isPlaying, isLoading } = useMusicStore()
@@ -16,8 +17,22 @@ export default function SongCard({ song, index, onClick, onToggleLike, onUploadC
   // Track upload progress if this is an uploading song
   useUploadProgress(song.uploadId)
 
+  // Read live upload state from the upload store (SSE) if available
+  const uploadState = song.uploadId ? useUploadStore((s) => s.uploads[song.uploadId]) : null
+  const currentStage = uploadState?.stage || song.stage
+
+  // Debug logging for upload state
+  if (song.uploadId) {
+    console.log('🎵 Song card state:', song.uploadId, {
+      songStage: song.stage,
+      uploadStoreStage: uploadState?.stage,
+      currentStage,
+      isOptimistic: song.isOptimistic
+    });
+  }
+
   // Handle provisional/uploading songs
-  const isUploading = song.uploadId && song.stage !== 'done'
+  const isUploading = song.uploadId && currentStage !== 'done'
   const isOptimistic = song.isOptimistic
   const isProcessing = isUploading || isOptimistic
   const displayName = song.name?.replace(/\.(webm|mp3|m4a)$/, '') || song.videoTitle || 'Unknown Song'

@@ -142,7 +142,10 @@ router.get('/progress/:uploadId/stream', authenticateUser, (req, res) => {
       res.write(`data: ${JSON.stringify({
         progress: upload.progress,
         stage: upload.stage,
-        error: upload.error
+        error: upload.error,
+        googleFileId: upload.googleFileId,
+        videoTitle: upload.videoTitle,
+        fileName: upload.fileName
       })}\n\n`);
       
       // Close connection when done

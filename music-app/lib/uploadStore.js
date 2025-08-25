@@ -5,14 +5,20 @@ export const useUploadStore = create((set) => ({
   uploads: {}, // { uploadId: { progress, stage } }
 
   addUpload: (uploadId) =>
-    set((state) => ({
-      uploads: { ...state.uploads, [uploadId]: { progress: 0, stage: 'starting' } },
-    })),
+    set((state) => {
+      console.log('🎯 Adding upload to store:', uploadId);
+      return {
+        uploads: { ...state.uploads, [uploadId]: { progress: 0, stage: 'starting' } },
+      };
+    }),
 
   updateUpload: (uploadId, data) =>
-    set((state) => ({
-      uploads: { ...state.uploads, [uploadId]: { ...state.uploads[uploadId], ...data } },
-    })),
+    set((state) => {
+      console.log('🔄 Updating upload in store:', uploadId, data);
+      return {
+        uploads: { ...state.uploads, [uploadId]: { ...state.uploads[uploadId], ...data } },
+      };
+    }),
 
   removeUpload: (uploadId) =>
     set((state) => {
