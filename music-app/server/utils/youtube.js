@@ -1,9 +1,10 @@
-// /utils/youtube.js - YouTube utilities with multiple fallbacks
+// /utils/youtube.js - Updated with cookie support and stream fixes
 const ytdl = require('@distube/ytdl-core');
 const youtubedl = require('youtube-dl-exec');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { PassThrough } = require('stream');
 
 const YOUTUBE_REGEX = /yout.*https|https.*yout/i;
 
@@ -21,29 +22,34 @@ function isValidYouTubeUrl(url) {
   return YOUTUBE_REGEX.test(url);
 }
 
-// Method 1: Using youtube-dl-exec package properly
+// Method 1: Using youtube-dl-exec with cookies
 async function streamWithYoutubeDlExec(url, onProgress) {
   try {
-    console.log('🎵 Attempting download with youtube-dl-exec...');
+    console.log('🎵 Attempting download with youtube-dl-exec (with cookies)...');
     
-    // Create a PassThrough stream to return immediately
-    const { PassThrough } = require('stream');
     const outputStream = new PassThrough();
     
-    // Download to buffer first (more reliable for problematic videos)
-    const output = await youtubedl(url, {
+    const options = {
       extractAudio: true,
       audioFormat: 'best',
       noCheckCertificate: true,
       noWarnings: true,
       preferFreeFormats: true,
-      addHeader: ['user-agent:Mozilla/5.0'],
-      cookies: process.env.YOUTUBE_COOKIES_FILE, // Optional: path to cookies file
-      output: '-', // Output to stdout
+      addHeader: ['user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'],
       quiet: true,
-    });
-    
-    // If we get here, download was successful
+      output: '-',
+      // Cookie options
+      cookiesFromBrowser: 'chrome', // Try chrome, firefox, edge, safari
+    };
+
+    // If cookies file exists, use it
+    if (process.env.YOUTUBE_COOKIES_FILE && fs.existsSync(process.env.YOUTUBE_COOKIES_FILE)) {
+      options.cookies = process.env.YOUTUBE_COOKIES_FILE;
+      delete options.cookiesFromBrowser;
+      console.log('📪 Using cookies file:', process.env.YOUTUBE_COOKIES_FILE);
+    }
+
+    const output = await youtubedl(url, options);
     outputStream.end(output);
     if (onProgress) onProgress(100);
     
@@ -54,21 +60,35 @@ async function streamWithYoutubeDlExec(url, onProgress) {
   }
 }
 
-// Method 2: Using spawn with system yt-dlp
+// Method 2: Using system yt-dlp with proper streaming
 function streamWithSystemYtDlp(url, onProgress) {
   return new Promise((resolve, reject) => {
     console.log('🎵 Attempting download with system yt-dlp...');
+    
+    // Use PassThrough stream to avoid EOF issues
+    const outputStream = new PassThrough();
     
     const args = [
       '-f', 'bestaudio',
       '-o', '-',
       '--no-playlist',
       '--no-check-certificate',
-      '--user-agent', 'Mozilla/5.0',
+      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      // Add cookie options
+      '--cookies-from-browser', 'chrome', // Try chrome, firefox, edge
       url
     ];
 
-    // Try different possible yt-dlp locations
+    // If cookies file exists, use it instead
+    if (process.env.YOUTUBE_COOKIES_FILE && fs.existsSync(process.env.YOUTUBE_COOKIES_FILE)) {
+      // Replace browser cookies with file
+      const browserCookieIndex = args.indexOf('--cookies-from-browser');
+      if (browserCookieIndex !== -1) {
+        args.splice(browserCookieIndex, 2, '--cookies', process.env.YOUTUBE_COOKIES_FILE);
+      }
+      console.log('📪 Using cookies file for yt-dlp');
+    }
+
     const commands = ['yt-dlp', 'youtube-dl'];
     let proc = null;
     let commandFound = false;
@@ -83,35 +103,38 @@ function streamWithSystemYtDlp(url, onProgress) {
         commandFound = true;
         console.log(`✅ Found ${cmd} in system PATH`);
         
+        // Pipe stdout to our PassThrough stream
+        proc.stdout.pipe(outputStream);
+        
         // Handle stderr for progress
+        let stderrData = '';
         proc.stderr.on('data', (chunk) => {
           const txt = chunk.toString();
-          const match = txt.match(/(\d{1,3}\.\d)%/);
+          stderrData += txt;
+          
+          const match = txt.match(/(\d{1,3}(?:\.\d)?)%/);
           if (match && onProgress) {
             const percent = Math.min(100, Math.floor(parseFloat(match[1])));
             onProgress(percent);
           }
         });
 
-        // Handle process errors
-        proc.on('error', (err) => {
-          if (err.code === 'ENOENT') {
-            commandFound = false;
-          } else {
-            reject(err);
-          }
-        });
-
+        // Handle process exit
         proc.on('close', (code) => {
-          if (code !== 0 && code !== null) {
-            reject(new Error(`${cmd} exited with code ${code}`));
+          if (code === 0) {
+            outputStream.end();
+            resolve(outputStream);
+          } else {
+            console.error(`${cmd} stderr:`, stderrData);
+            reject(new Error(`${cmd} exited with code ${code}: ${stderrData}`));
           }
         });
 
-        if (commandFound) {
-          resolve(proc.stdout);
-          break;
-        }
+        proc.on('error', (err) => {
+          reject(err);
+        });
+
+        if (commandFound) break;
       } catch (err) {
         console.warn(`⚠️ ${cmd} not found:`, err.message);
         continue;
@@ -124,14 +147,13 @@ function streamWithSystemYtDlp(url, onProgress) {
   });
 }
 
-// Method 3: Using ytdl-core with better error handling
+// Method 3: Using ytdl-core with cookies
 async function streamWithYtdlCore(url, onProgress) {
   try {
     console.log('🎵 Attempting download with ytdl-core...');
     
     const normalizedUrl = normalizeYoutubeUrl(url);
     
-    // Add cookies if available
     const options = {
       quality: 'highestaudio',
       filter: 'audioonly',
@@ -144,13 +166,18 @@ async function streamWithYtdlCore(url, onProgress) {
       }
     };
 
-    // If you have cookies, add them
+    // Add cookie if available
     if (process.env.YOUTUBE_COOKIE) {
       options.requestOptions.headers.cookie = process.env.YOUTUBE_COOKIE;
+      console.log('🍪 Using YouTube cookie for ytdl-core');
     }
 
     const info = await ytdl.getInfo(normalizedUrl, options);
     const stream = ytdl.downloadFromInfo(info, options);
+    
+    // Wrap in PassThrough to avoid EOF issues
+    const outputStream = new PassThrough();
+    stream.pipe(outputStream);
     
     if (onProgress) {
       stream.on('progress', (_, downloaded, total) => {
@@ -159,34 +186,17 @@ async function streamWithYtdlCore(url, onProgress) {
       });
     }
     
-    return stream;
-  } catch (error) {
-    console.error('❌ ytdl-core failed:', error.message);
-    throw error;
-  }
-}
-
-// Method 4: Using play-dl as alternative (install with: npm install play-dl)
-async function streamWithPlayDl(url, onProgress) {
-  try {
-    // Only try if play-dl is installed
-    const play = require('play-dl');
-    
-    console.log('🎵 Attempting download with play-dl...');
-    
-    const stream = await play.stream(url, {
-      quality: 2, // 0 = lowest, 2 = highest
+    stream.on('end', () => {
+      outputStream.end();
     });
     
-    if (onProgress) {
-      // play-dl doesn't have built-in progress, so we fake it
-      setTimeout(() => onProgress(50), 1000);
-      setTimeout(() => onProgress(99), 2000);
-    }
+    stream.on('error', (err) => {
+      outputStream.destroy(err);
+    });
     
-    return stream.stream;
+    return outputStream;
   } catch (error) {
-    console.error('❌ play-dl failed or not installed:', error.message);
+    console.error('❌ ytdl-core failed:', error.message);
     throw error;
   }
 }
@@ -194,55 +204,51 @@ async function streamWithPlayDl(url, onProgress) {
 async function getVideoInfo(url) {
   const normalizedUrl = normalizeYoutubeUrl(url);
   
-  // Try multiple methods to get video info
   const methods = [
-    // Method 1: ytdl-core
+    // Try ytdl-core first
     async () => {
-      const info = await ytdl.getInfo(normalizedUrl, {
+      const options = {
         requestOptions: {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
           }
         }
-      });
+      };
+      if (process.env.YOUTUBE_COOKIE) {
+        options.requestOptions.headers.cookie = process.env.YOUTUBE_COOKIE;
+      }
+      
+      const info = await ytdl.getInfo(normalizedUrl, options);
       return {
         title: info.videoDetails.title,
         duration: info.videoDetails.lengthSeconds,
         thumbnail: info.videoDetails.thumbnails?.[0]?.url
       };
     },
-    // Method 2: youtube-dl-exec
+    // Try youtube-dl-exec
     async () => {
-      const info = await youtubedl(normalizedUrl, {
+      const options = {
         dumpSingleJson: true,
         noCheckCertificate: true,
         noWarnings: true,
-        preferFreeFormats: true,
         addHeader: ['user-agent:Mozilla/5.0'],
-      });
+        cookiesFromBrowser: 'chrome',
+      };
+      
+      if (process.env.YOUTUBE_COOKIES_FILE && fs.existsSync(process.env.YOUTUBE_COOKIES_FILE)) {
+        options.cookies = process.env.YOUTUBE_COOKIES_FILE;
+        delete options.cookiesFromBrowser;
+      }
+      
+      const info = await youtubedl(normalizedUrl, options);
       return {
         title: info.title || 'Unknown Title',
         duration: info.duration,
         thumbnail: info.thumbnail
       };
-    },
-    // Method 3: play-dl (if installed)
-    async () => {
-      try {
-        const play = require('play-dl');
-        const info = await play.video_info(normalizedUrl);
-        return {
-          title: info.video_details.title,
-          duration: info.video_details.durationInSec,
-          thumbnail: info.video_details.thumbnails?.[0]?.url
-        };
-      } catch (e) {
-        throw new Error('play-dl not available');
-      }
     }
   ];
 
-  // Try each method until one succeeds
   for (const method of methods) {
     try {
       return await method();
@@ -252,7 +258,6 @@ async function getVideoInfo(url) {
     }
   }
 
-  // If all methods fail, return default
   console.error('❌ All methods failed to get video info');
   return {
     title: 'Unknown Title',
@@ -264,27 +269,22 @@ async function getVideoInfo(url) {
 async function createAudioStream(url, onProgress) {
   const normalizedUrl = normalizeYoutubeUrl(url);
   
-  // Define all download methods in order of preference
+  // Define download methods in order of preference
   const methods = [
-    {
-      name: 'ytdl-core',
-      func: () => streamWithYtdlCore(normalizedUrl, onProgress)
-    },
     {
       name: 'youtube-dl-exec',
       func: () => streamWithYoutubeDlExec(normalizedUrl, onProgress)
     },
     {
-      name: 'system-ytdlp',
+      name: 'system-ytdlp', 
       func: () => streamWithSystemYtDlp(normalizedUrl, onProgress)
     },
     {
-      name: 'play-dl',
-      func: () => streamWithPlayDl(normalizedUrl, onProgress)
+      name: 'ytdl-core',
+      func: () => streamWithYtdlCore(normalizedUrl, onProgress)
     }
   ];
 
-  // Try each method until one succeeds
   let lastError = null;
   
   for (const method of methods) {
@@ -303,9 +303,8 @@ async function createAudioStream(url, onProgress) {
     }
   }
 
-  // If all methods fail, throw the last error
   console.error('❌ All download methods failed');
-  throw lastError || new Error('All download methods failed');
+  throw lastError || new Error('All download methods failed. YouTube may be blocking access.');
 }
 
 module.exports = {
