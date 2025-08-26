@@ -1,4 +1,4 @@
-// /hooks/useUploadProgress.js
+// /hooks/useUploadProgress.js - MINIMAL FIX
 import { useEffect } from 'react';
 import { useUploadStore } from '../lib/uploadStore';
 import { API_BASE } from '../lib/config';
@@ -9,59 +9,82 @@ export default function useUploadProgress(uploadId, onComplete) {
   useEffect(() => {
     if (!uploadId) return;
 
-    let cancelled = false;
-    const controller = new AbortController();
-    const evtSource = new EventSource(`${API_BASE}/api/upload/progress/${uploadId}/stream`);
+    // Get token from localStorage
+    const token = localStorage.getItem('music_app_token');
+    if (!token) {
+      console.error('No auth token found for SSE');
+      return;
+    }
+
+    console.log("token" , token)
+
+    // Pass token as query parameter for EventSource
+    const sseUrl = `${API_BASE}/api/upload/progress/${uploadId}/stream?token=${encodeURIComponent(token)}`;
+    
+    console.log('📡 Starting SSE for upload:', uploadId);
+    const evtSource = new EventSource(sseUrl);
 
     evtSource.onmessage = (e) => {
-      if (cancelled) return;
       try {
         const data = JSON.parse(e.data);
-        console.log('📡 SSE message received:', uploadId, data);
+        console.log('📊 SSE Progress:', uploadId, data);
+        
+        // Update the store
         updateUpload(uploadId, data);
         
         if (data.stage === 'done') {
-          // Notify that upload is complete
+          console.log('✅ Upload completed:', uploadId);
+          
           if (onComplete) {
             onComplete(uploadId, data);
           }
 
-          // Dispatch a global event for song list refresh with a normalized payload
-          // Include googleFileId and videoTitle when available so the UI can immediately
-          // reconcile optimistic entries even if Drive hasn't listed the file yet.
-          console.log('🎉 Dispatching upload-complete (success):', uploadId, data);
+          // Dispatch event for the main page to refresh songs
           window.dispatchEvent(new CustomEvent('upload-complete', {
-            detail: { uploadId, success: true, googleFileId: data.googleFileId, videoTitle: data.videoTitle }
+            detail: { 
+              uploadId, 
+              success: true, 
+              googleFileId: data.googleFileId, 
+              videoTitle: data.videoTitle 
+            }
           }));
 
           evtSource.close();
+          // Keep status visible for a bit
           setTimeout(() => removeUpload(uploadId), 5000);
-        } else if (data.stage === 'error') {
-          // Notify completion handler of failure
+          
+        } else if (data.stage === 'error' || data.stage === 'canceled') {
+          console.log('❌ Upload failed/canceled:', uploadId);
+          
           if (onComplete) {
             onComplete(uploadId, data);
           }
 
-          // Dispatch normalized failure event
+          // Dispatch failure event
           window.dispatchEvent(new CustomEvent('upload-complete', {
-            detail: { uploadId, success: false, error: data.error || 'error' }
+            detail: { 
+              uploadId, 
+              success: false, 
+              error: data.error || 'Upload failed' 
+            }
           }));
 
           evtSource.close();
-          setTimeout(() => removeUpload(uploadId), 5000);
+          // Keep error visible longer
+          setTimeout(() => removeUpload(uploadId), 10000);
         }
-      } catch {}
-    };
-
-    evtSource.onerror = () => {
-      if (!cancelled) {
-        evtSource.close();
+      } catch (err) {
+        console.error('Error parsing SSE data:', err);
       }
     };
 
+    evtSource.onerror = (error) => {
+      console.error('SSE error:', error);
+      evtSource.close();
+    };
+
+    // Cleanup
     return () => {
-      cancelled = true;
-      controller.abort();
       evtSource.close();
     };
   }, [uploadId, updateUpload, removeUpload, onComplete]);

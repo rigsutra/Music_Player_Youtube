@@ -9,7 +9,6 @@ const router = express.Router();
 // Get user's songs
 router.get('/', authenticateUser, async (req, res) => {
   try {
-    console.log(`🎵 Fetching songs for user ${req.user.googleId}`);
     
     const files = await googleDriveService.listUserFiles(req.userId);
     
@@ -36,7 +35,6 @@ router.get('/', authenticateUser, async (req, res) => {
       videoTitle: uploadMap[file.id]?.videoTitle || file.name
     }));
     
-    console.log(`✅ Retrieved ${enhancedFiles.length} songs for user ${req.user.googleId}`);
     res.json(enhancedFiles);
     
   } catch (error) {
@@ -59,8 +57,6 @@ router.get('/', authenticateUser, async (req, res) => {
 router.get('/stream/:fileId', authenticateUser, async (req, res) => {
   try {
     const { fileId } = req.params;
-    
-    console.log(`🎧 User ${req.user.googleId} streaming file ${fileId}`);
     
     const { drive, fileInfo } = await googleDriveService.streamFile(req.userId, fileId);
     

@@ -113,6 +113,9 @@ export default function AddSongModal({ isOpen, onClose, onSongAdded, fetchSongsF
         setFileName('')
         onClose()
       }
+      setTimeout(() => {
+        fetchSongsFromDrive()
+      }, 5000);
 
     } catch (error) {
       console.error('Error adding song:', error)

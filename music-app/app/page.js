@@ -91,52 +91,38 @@ export default function Home() {
   }, [songs, setSongs])
 
   // Listen for upload completion to refresh song list
+  // Updated section of page.js - replace the useEffect for upload completion
+
+  // Listen for upload completion to refresh song list
   useEffect(() => {
     const handleUploadComplete = async (event) => {
-      const { uploadId, success, error, googleFileId, videoTitle } = event.detail
-      console.log('Upload completed:', event.detail)
+      const { uploadId, success, error } = event.detail;
+      console.log('Upload completed:', event.detail);
 
       if (success) {
-        // Try to fetch the songs several times (Drive can be eventually consistent)
-        const maxRetries = 5
-        let attempts = 0
-        let foundOnServer = false
-
-        while (attempts < maxRetries && !foundOnServer) {
-          try {
-            await fetchSongs()
-            // After fetch, read the latest songs from the store to avoid stale closure
-            const latestSongs = useMusicStore.getState().songs || []
-            const found = latestSongs.some(s => s.uploadId === uploadId || s.id === (googleFileId || s.id))
-            if (found) {
-              foundOnServer = true
-              break
-            }
-          } catch (e) {
-            // ignore and retry
-          }
-          attempts++
-          // small delay between attempts
-          // eslint-disable-next-line no-await-in-loop
-          await new Promise(r => setTimeout(r, 1200))
-        }
-
-        if (!foundOnServer) {
-          // If Drive hasn't listed the file yet, replace optimistic item locally using event data
-          setSongs(prev => prev.map(s => s.uploadId === uploadId ? ({ ...s, stage: 'done', id: googleFileId || s.id, videoTitle: videoTitle || s.videoTitle }) : s))
-        }
-
-        toast.success('Song upload completed!')
+        // Refresh the songs list to get the completed upload
+        await fetchSongs();
+        toast.success('Song upload completed!');
       } else {
-        // Remove the optimistic song on failure
-        setSongs(prev => prev.filter(song => song.uploadId !== uploadId))
-        toast.error(`Upload failed: ${error || 'Unknown error'}`)
+        // Remove the optimistic song on failure or cancellation
+        setSongs(prev => {
+          const filtered = prev.filter(song => song.uploadId !== uploadId);
+          console.log('Removing failed upload from UI:', uploadId);
+          return filtered;
+        });
+        
+        // Show appropriate message
+        if (error && error.includes('canceled')) {
+          toast.error('Upload was canceled');
+        } else {
+          toast.error(`Upload failed: ${error || 'Unknown error'}`);
+        }
       }
-    }
+    };
 
-    window.addEventListener('upload-complete', handleUploadComplete)
-    return () => window.removeEventListener('upload-complete', handleUploadComplete)
-  }, [fetchSongs, setSongs])
+    window.addEventListener('upload-complete', handleUploadComplete);
+    return () => window.removeEventListener('upload-complete', handleUploadComplete);
+  }, [fetchSongs, setSongs]);
 
   const handleSongClick = (song, index) => setCurrentSong(song, index)
 
