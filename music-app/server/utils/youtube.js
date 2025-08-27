@@ -1,15 +1,12 @@
-// /utils/youtube.js - Corrected for Render deployment
+// /utils/youtube.js - Works without cookies, handles errors gracefully
 const ytdl = require('@distube/ytdl-core');
 const youtubedl = require('youtube-dl-exec');
 const { spawn } = require('child_process');
 const { PassThrough } = require('stream');
+const fs = require('fs');
 
-// --- CONSTANTS ---
 const YOUTUBE_REGEX = /yout.*https|https.*yout/i;
-// This is the fixed path to your secret file on Render.
-const COOKIE_FILE_PATH = '/etc/secrets/cookies.txt';
 
-// --- HELPER FUNCTIONS ---
 function sanitizeFileName(name = '') {
   return name.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').replace(/\s+/g, ' ').trim().slice(0, 150);
 }
@@ -24,16 +21,13 @@ function isValidYouTubeUrl(url) {
   return YOUTUBE_REGEX.test(url);
 }
 
-// --- DOWNLOAD METHODS ---
-
-// Method 1: Using youtube-dl-exec (Primary Method)
+// Method 1: Using youtube-dl-exec without requiring cookies
 async function streamWithYoutubeDlExec(url, onProgress) {
   try {
-    console.log('🎵 Attempting download with youtube-dl-exec (with cookies)...');
+    console.log('🎵 Attempting download with youtube-dl-exec...');
     
     const outputStream = new PassThrough();
     
-    // Simplified options that directly use the secret cookie file
     const options = {
       extractAudio: true,
       audioFormat: 'best',
@@ -41,28 +35,50 @@ async function streamWithYoutubeDlExec(url, onProgress) {
       noWarnings: true,
       preferFreeFormats: true,
       addHeader: ['user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'],
-      quiet: true,
+      quiet: false, // Show output for debugging
       output: '-',
-      // We directly specify the cookie file path. No more 'cookiesFromBrowser'.
-      cookies: COOKIE_FILE_PATH,
     };
 
-    const childProcess = youtubedl.exec(url, options);
+    // Only add cookies if the file actually exists
+    const cookiePath = process.env.YOUTUBE_COOKIES_FILE || '/etc/secrets/cookies.txt';
+    if (fs.existsSync(cookiePath)) {
+      console.log('📪 Found cookies file:', cookiePath);
+      options.cookies = cookiePath;
+    } else {
+      console.log('🍪 No cookies file found, proceeding without cookies');
+      // Try browser cookies as fallback
+      options.cookiesFromBrowser = 'chrome';
+    }
 
-    childProcess.stdout.pipe(outputStream);
-
-    // Optional: You can try to parse progress from stderr if needed
-    childProcess.stderr.on('data', (data) => {
-        // console.log(`stderr: ${data}`); // Uncomment for debugging
-    });
-
-    childProcess.on('close', (code) => {
-      if (code !== 0) {
-        console.error(`youtube-dl-exec process exited with code ${code}`);
+    // Use exec to get the stream properly
+    const subprocess = youtubedl.exec(url, options);
+    
+    // Pipe stdout to our stream
+    subprocess.stdout.pipe(outputStream);
+    
+    // Handle errors
+    subprocess.stderr.on('data', (data) => {
+      const text = data.toString();
+      // Check for progress
+      const match = text.match(/(\d+(?:\.\d+)?%)/);
+      if (match && onProgress) {
+        const percent = parseFloat(match[1]);
+        onProgress(Math.floor(percent));
       }
     });
 
-    if (onProgress) onProgress(100); // Placeholder for progress
+    subprocess.on('error', (err) => {
+      console.error('youtube-dl-exec process error:', err);
+      outputStream.destroy(err);
+    });
+
+    subprocess.on('exit', (code) => {
+      if (code === 0) {
+        if (onProgress) onProgress(100);
+      } else {
+        console.error(`youtube-dl-exec exited with code ${code}`);
+      }
+    });
 
     return outputStream;
   } catch (error) {
@@ -71,21 +87,76 @@ async function streamWithYoutubeDlExec(url, onProgress) {
   }
 }
 
-// Method 2: Using ytdl-core (Fallback Method)
-// This method is less reliable as it's more easily blocked by YouTube.
+// Method 2: Using system yt-dlp
+function streamWithSystemYtDlp(url, onProgress) {
+  return new Promise((resolve, reject) => {
+    console.log('🎵 Attempting download with system yt-dlp...');
+    
+    const outputStream = new PassThrough();
+    const args = [
+      '-f', 'bestaudio',
+      '-o', '-',
+      '--no-playlist',
+      '--no-check-certificate',
+      '--user-agent', 'Mozilla/5.0',
+      url
+    ];
+
+    // Try to add cookies if available
+    const cookiePath = process.env.YOUTUBE_COOKIES_FILE || '/etc/secrets/cookies.txt';
+    if (fs.existsSync(cookiePath)) {
+      args.push('--cookies', cookiePath);
+    }
+
+    const commands = ['yt-dlp', 'youtube-dl'];
+    let proc = null;
+    
+    for (const cmd of commands) {
+      try {
+        proc = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+        console.log(`✅ Found ${cmd} in system`);
+        
+        proc.stdout.pipe(outputStream);
+        
+        proc.stderr.on('data', (chunk) => {
+          const text = chunk.toString();
+          const match = text.match(/(\d+(?:\.\d+)?%)/);
+          if (match && onProgress) {
+            onProgress(Math.floor(parseFloat(match[1])));
+          }
+        });
+
+        proc.on('close', (code) => {
+          if (code === 0) {
+            resolve(outputStream);
+          } else {
+            reject(new Error(`${cmd} exited with code ${code}`));
+          }
+        });
+
+        proc.on('error', reject);
+        return;
+      } catch (err) {
+        continue;
+      }
+    }
+    
+    reject(new Error('No youtube downloader found'));
+  });
+}
+
+// Method 3: ytdl-core fallback
 async function streamWithYtdlCore(url, onProgress) {
   try {
     console.log('🎵 Attempting download with ytdl-core...');
-    
     const normalizedUrl = normalizeYoutubeUrl(url);
     
-    const options = {
+    const stream = ytdl(normalizedUrl, {
       quality: 'highestaudio',
       filter: 'audioonly',
       highWaterMark: 1 << 25,
-    };
-
-    const stream = ytdl(normalizedUrl, options);
+    });
+    
     const outputStream = new PassThrough();
     stream.pipe(outputStream);
     
@@ -103,19 +174,23 @@ async function streamWithYtdlCore(url, onProgress) {
   }
 }
 
-// --- MAIN EXPORTED FUNCTIONS ---
-
 async function getVideoInfo(url) {
   const normalizedUrl = normalizeYoutubeUrl(url);
+  
+  // Try without cookies first
   try {
     const options = {
       dumpSingleJson: true,
       noCheckCertificate: true,
       noWarnings: true,
       addHeader: ['user-agent:Mozilla/5.0'],
-      // We also use the cookie file for getting info
-      cookies: COOKIE_FILE_PATH,
     };
+    
+    // Only add cookies if file exists
+    const cookiePath = process.env.YOUTUBE_COOKIES_FILE || '/etc/secrets/cookies.txt';
+    if (fs.existsSync(cookiePath)) {
+      options.cookies = cookiePath;
+    }
     
     const info = await youtubedl(normalizedUrl, options);
     return {
@@ -125,11 +200,11 @@ async function getVideoInfo(url) {
     };
   } catch (error) {
     console.warn('⚠️ Video info method failed:', error.message);
-    // Fallback to a default object if info retrieval fails
+    // Return defaults instead of crashing
     return {
-        title: 'Unknown Title',
-        duration: null,
-        thumbnail: null
+      title: 'Unknown Title',
+      duration: null,
+      thumbnail: null
     };
   }
 }
@@ -137,9 +212,9 @@ async function getVideoInfo(url) {
 async function createAudioStream(url, onProgress) {
   const normalizedUrl = normalizeYoutubeUrl(url);
   
-  // Define download methods. We prioritize youtube-dl-exec as it's more robust with cookies.
   const methods = [
     { name: 'youtube-dl-exec', func: () => streamWithYoutubeDlExec(normalizedUrl, onProgress) },
+    { name: 'system-ytdlp', func: () => streamWithSystemYtDlp(normalizedUrl, onProgress) },
     { name: 'ytdl-core', func: () => streamWithYtdlCore(normalizedUrl, onProgress) }
   ];
 
@@ -156,12 +231,10 @@ async function createAudioStream(url, onProgress) {
     } catch (error) {
       console.error(`❌ ${method.name} failed:`, error.message);
       lastError = error;
-      continue;
     }
   }
 
-  console.error('❌ All download methods failed');
-  throw lastError || new Error('All download methods failed. YouTube may be blocking access.');
+  throw lastError || new Error('All download methods failed');
 }
 
 module.exports = {

@@ -257,8 +257,12 @@ router.get('/progress/:uploadId/stream', async (req, res) => {
 // Updated processUpload function for /routes/upload.js
 // Replace the existing processUpload function with this one
 
+// Fixed processUpload function for /routes/upload.js
+// Replace the existing processUpload function with this one
+
 async function processUpload(upload) {
   let progressUpdateInterval = null;
+  let isSaving = false; // Flag to prevent parallel saves
   
   try {
     console.log(`🔄 Processing upload ${upload.uploadId}`);
@@ -281,17 +285,27 @@ async function processUpload(upload) {
     
     try {
       const result = await createAudioStream(upload.youtubeUrl, async (progress) => {
+        // Prevent parallel saves
+        if (isSaving) return;
+        
         // Only update if progress changed significantly (every 5%)
         if (Math.abs(progress - lastProgress) >= 5 || progress === 100) {
           lastProgress = progress;
-          upload.progress = Math.min(99, progress);
           
-          // Save progress update
+          // Set flag and save
+          isSaving = true;
           try {
-            await upload.save();
-            console.log(`📊 Download progress for ${upload.uploadId}: ${progress}%`);
+            // Re-fetch the document to avoid version conflicts
+            const currentUpload = await Upload.findById(upload._id);
+            if (currentUpload && currentUpload.stage === 'downloading') {
+              currentUpload.progress = Math.min(99, progress);
+              await currentUpload.save();
+              console.log(`📊 Download progress for ${upload.uploadId}: ${progress}%`);
+            }
           } catch (e) {
             console.error('Failed to save progress:', e.message);
+          } finally {
+            isSaving = false;
           }
         }
       });
@@ -302,10 +316,15 @@ async function processUpload(upload) {
       }
     } catch (err) {
       console.error(`❌ Failed to create audio stream for ${upload.uploadId}:`, err.message);
-      upload.stage = 'error';
-      upload.error = `Download failed: ${err.message}`;
-      upload.isActive = false;
-      await upload.save();
+      
+      // Save error state (re-fetch to avoid conflicts)
+      const errorUpload = await Upload.findById(upload._id);
+      if (errorUpload) {
+        errorUpload.stage = 'error';
+        errorUpload.error = `Download failed: ${err.message}`;
+        errorUpload.isActive = false;
+        await errorUpload.save();
+      }
       return;
     }
 
@@ -313,13 +332,23 @@ async function processUpload(upload) {
     if (stream.on) {
       stream.on('error', async (err) => {
         console.error(`Stream error for upload ${upload.uploadId}:`, err.message);
-        try {
-          upload.stage = 'error';
-          upload.error = `Stream error: ${err.message}`;
-          upload.isActive = false;
-          await upload.save();
-        } catch (saveErr) {
-          console.error('Failed to save error state:', saveErr.message);
+        
+        // Prevent parallel error saves
+        if (!isSaving) {
+          isSaving = true;
+          try {
+            const errorUpload = await Upload.findById(upload._id);
+            if (errorUpload && errorUpload.stage !== 'error') {
+              errorUpload.stage = 'error';
+              errorUpload.error = `Stream error: ${err.message}`;
+              errorUpload.isActive = false;
+              await errorUpload.save();
+            }
+          } catch (saveErr) {
+            console.error('Failed to save error state:', saveErr.message);
+          } finally {
+            isSaving = false;
+          }
         }
       });
     }
@@ -332,22 +361,26 @@ async function processUpload(upload) {
     }
 
     // Update to uploading phase
-    upload.stage = 'uploading';
-    upload.progress = 0;
-    await upload.save();
+    const uploadingDoc = await Upload.findById(upload._id);
+    uploadingDoc.stage = 'uploading';
+    uploadingDoc.progress = 0;
+    await uploadingDoc.save();
 
     // Track upload progress to Google Drive
     let uploadStartTime = Date.now();
     let estimatedUploadTime = 30000; // Estimate 30 seconds for upload
     
-    // Start a progress simulator for upload (since Google Drive doesn't give real progress)
+    // Start a progress simulator for upload
     progressUpdateInterval = setInterval(async () => {
+      if (isSaving) return; // Skip if already saving
+      
       const elapsed = Date.now() - uploadStartTime;
       const estimatedProgress = Math.min(90, Math.floor((elapsed / estimatedUploadTime) * 100));
       
+      isSaving = true;
       try {
         const currentUpload = await Upload.findById(upload._id);
-        if (currentUpload.stage === 'uploading') {
+        if (currentUpload && currentUpload.stage === 'uploading') {
           currentUpload.progress = estimatedProgress;
           await currentUpload.save();
           console.log(`📤 Upload progress for ${upload.uploadId}: ${estimatedProgress}%`);
@@ -356,25 +389,32 @@ async function processUpload(upload) {
         }
       } catch (e) {
         console.error('Failed to update upload progress:', e.message);
+      } finally {
+        isSaving = false;
       }
-    }, 2000);
+    }, 3000); // Reduce frequency to every 3 seconds
 
     // Upload to Google Drive
     let fileId;
     try {
       fileId = await googleDriveService.uploadFile(
         upload.userId,
-        upload.fileName,
+        uploadingDoc.fileName,
         stream,
         'audio/webm'
       );
     } catch (err) {
       clearInterval(progressUpdateInterval);
       console.error(`❌ Google Drive upload failed for ${upload.uploadId}:`, err.message);
-      upload.stage = 'error';
-      upload.error = `Drive upload failed: ${err.message}`;
-      upload.isActive = false;
-      await upload.save();
+      
+      // Save error state
+      const errorUpload = await Upload.findById(upload._id);
+      if (errorUpload) {
+        errorUpload.stage = 'error';
+        errorUpload.error = `Drive upload failed: ${err.message}`;
+        errorUpload.isActive = false;
+        await errorUpload.save();
+      }
       return;
     }
 
@@ -384,13 +424,15 @@ async function processUpload(upload) {
     }
 
     // Mark as complete
-    upload.stage = 'done';
-    upload.progress = 100;
-    upload.googleFileId = fileId;
-    upload.isActive = false;
-    await upload.save();
-
-    console.log(`✅ Upload completed: ${upload.uploadId} -> ${fileId}`);
+    const completeUpload = await Upload.findById(upload._id);
+    if (completeUpload) {
+      completeUpload.stage = 'done';
+      completeUpload.progress = 100;
+      completeUpload.googleFileId = fileId;
+      completeUpload.isActive = false;
+      await completeUpload.save();
+      console.log(`✅ Upload completed: ${upload.uploadId} -> ${fileId}`);
+    }
 
   } catch (error) {
     // Clean up interval if error
@@ -399,13 +441,20 @@ async function processUpload(upload) {
     }
     
     console.error(`❌ Upload processing failed for ${upload.uploadId}:`, error.message);
-    try {
-      upload.stage = 'error';
-      upload.error = error.message;
-      upload.isActive = false;
-      await upload.save();
-    } catch (saveErr) {
-      console.error('Failed to save error state:', saveErr.message);
+    
+    // Final error save
+    if (!isSaving) {
+      try {
+        const errorUpload = await Upload.findById(upload._id);
+        if (errorUpload) {
+          errorUpload.stage = 'error';
+          errorUpload.error = error.message;
+          errorUpload.isActive = false;
+          await errorUpload.save();
+        }
+      } catch (saveErr) {
+        console.error('Failed to save final error state:', saveErr.message);
+      }
     }
   }
 }
