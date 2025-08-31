@@ -1,7 +1,7 @@
-// /components/SongCard.js
+// /components/SongCard.js - Fixed processing logic
 'use client'
 
-import { Box, Typography, IconButton, Chip, LinearProgress, Tooltip, Button } from '@mui/material'
+import { Box, Typography, IconButton, Chip, LinearProgress, Tooltip, Button, Menu, MenuItem } from '@mui/material'
 import { 
   PlayArrow as PlayIcon, 
   Pause as PauseIcon, 
@@ -11,9 +11,11 @@ import {
   CloudDownload as DownloadIcon,
   CloudUpload as UploadIcon,
   Error as ErrorIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  MoreVert as MoreVertIcon,
 } from '@mui/icons-material'
 import { motion } from 'framer-motion'
+import { useState } from 'react'
 import { useMusicStore } from '../lib/store'
 import { formatFileSize } from '../lib/utils'
 import useUploadProgress from '../hooks/useUploadProgress'
@@ -21,26 +23,36 @@ import { useUploadStore } from '../lib/uploadStore'
 import apiClient from '../lib/api'
 import toast from 'react-hot-toast'
 
-export default function SongCard({ song, index, onClick, onToggleLike, totalSongs }) {
+export default function SongCard({ song, index, onClick, onToggleLike, totalSongs, isInPlaylist = false, onSongDeleted }) {
   const { currentSong, isPlaying, isLoading } = useMusicStore()
   const isCurrentSong = currentSong?.id === song.id
   const isCurrentlyPlaying = isCurrentSong && isPlaying
   const isCurrentlyLoading = isCurrentSong && isLoading
 
-  // Track upload progress if this is an uploading song
-  useUploadProgress(song.uploadId)
+  // Menu state
+  const [menuAnchor, setMenuAnchor] = useState(null)
+  const isMenuOpen = Boolean(menuAnchor)
 
-  // Read live upload state from the upload store
-  const uploadState = song.uploadId ? useUploadStore((s) => s.uploads[song.uploadId]) : null
-  const currentStage = uploadState?.stage || song.stage
-  const progress = uploadState?.progress || 0
-  const error = uploadState?.error
+  // Track upload progress ONLY if this is an active upload
+  const shouldTrackProgress = song.uploadId && song.isActive
+  useUploadProgress(shouldTrackProgress ? song.uploadId : null)
 
-  // Handle provisional/uploading songs
-  const isUploading = song.uploadId && currentStage !== 'done' && currentStage !== 'error'
+  // Read live upload state from the upload store (only for active uploads)
+  const uploadState = shouldTrackProgress ? useUploadStore((s) => s.uploads[song.uploadId]) : null
+  
+  // Determine the current stage and progress
+  // Priority: live upload state > database stage > default 'done'
+  const currentStage = uploadState?.stage || song.stage || 'done'
+  const progress = uploadState?.progress || song.progress || (currentStage === 'done' ? 100 : 0)
+  const error = uploadState?.error || song.error
+
+  // Determine processing state
+  const isUploading = ['starting', 'downloading', 'uploading'].includes(currentStage) && song.isActive
   const hasError = currentStage === 'error'
-  const isOptimistic = song.isOptimistic && !uploadState
+  const isOptimistic = song.isOptimistic === true && !uploadState // Only true optimistic songs
   const isProcessing = isUploading || isOptimistic
+  
+  // Display name
   const displayName = song.name?.replace(/\.(webm|mp3|m4a)$/, '') || song.videoTitle || 'Unknown Song'
 
   // Calculate display number (newest songs get highest numbers)
@@ -65,6 +77,38 @@ export default function SongCard({ song, index, onClick, onToggleLike, totalSong
     }
   }
 
+  // Menu handlers
+  const handleMenuOpen = (e) => {
+    e.stopPropagation()
+    setMenuAnchor(e.currentTarget)
+  }
+
+  const handleMenuClose = () => {
+    setMenuAnchor(null)
+  }
+
+  const handleDelete = async () => { 
+    handleMenuClose()
+    try {
+      await apiClient.delete(`/api/songs/${song.id}`)
+      toast.success('Song deleted successfully')
+
+      onSongDeleted?.()
+    } catch (error) {
+      toast.error('Failed to delete song')
+    }
+  }
+
+  const handleAddToPlaylist = () => {
+    handleMenuClose()
+    toast.success('Add to playlist feature coming soon!')
+  }
+
+  const handleRemoveFromPlaylist = () => {
+    handleMenuClose()
+    toast.success('Removed from playlist')
+  }
+
   const getStageLabel = () => {
     switch (currentStage) {
       case 'starting': return 'Initializing'
@@ -73,7 +117,7 @@ export default function SongCard({ song, index, onClick, onToggleLike, totalSong
       case 'done': return 'Ready'
       case 'error': return 'Failed'
       case 'canceled': return 'Canceled'
-      default: return 'Processing'
+      default: return isOptimistic ? 'Queued' : 'Ready'
     }
   }
 
@@ -84,12 +128,15 @@ export default function SongCard({ song, index, onClick, onToggleLike, totalSong
       case 'done': return '#10b981'
       case 'error': return '#ef4444'
       case 'canceled': return '#6b7280'
-      default: return '#f59e0b'
+      default: return isOptimistic ? '#f59e0b' : '#10b981'
     }
   }
 
   const songName = displayName
   const dateAdded = new Date(song.createdTime).toLocaleDateString()
+
+  // // Debug logging (remove in production)
+  // console.log(`Song ${song.id} - Stage: ${currentStage}, Processing: ${isProcessing}, Optimistic: ${isOptimistic}, Active: ${song.isActive}`)
 
   return (
     <motion.div 
@@ -110,14 +157,14 @@ export default function SongCard({ song, index, onClick, onToggleLike, totalSong
             ? 'linear-gradient(90deg, rgba(139,92,246,0.2), rgba(236,72,153,0.2))'
             : hasError
               ? 'linear-gradient(90deg, rgba(239,68,68,0.1), rgba(220,38,38,0.1))'
-              : isOptimistic
+              : isProcessing
                 ? 'linear-gradient(90deg, rgba(251,191,36,0.1), rgba(245,158,11,0.1))'
                 : 'rgba(31,41,55,0.7)',
           border: isCurrentSong
             ? '2px solid rgba(139,92,246,0.5)'
             : hasError
               ? '1px solid rgba(239,68,68,0.3)'
-              : isOptimistic
+              : isProcessing
                 ? '1px solid rgba(251,191,36,0.3)'
                 : '1px solid rgba(75,85,99,0.2)',
           cursor: 'pointer',
@@ -126,7 +173,7 @@ export default function SongCard({ song, index, onClick, onToggleLike, totalSong
           '&:hover': {
             background: hasError
               ? 'linear-gradient(90deg, rgba(239,68,68,0.15), rgba(220,38,38,0.15))'
-              : isOptimistic
+              : isProcessing
                 ? 'linear-gradient(90deg, rgba(251,191,36,0.15), rgba(245,158,11,0.15))'
                 : 'rgba(55,65,81,0.85)'
           },
@@ -258,7 +305,7 @@ export default function SongCard({ song, index, onClick, onToggleLike, totalSong
             />
           )}
           
-          {currentStage === 'downloading' && (
+          {currentStage === 'downloading' && isProcessing && (
             <Tooltip title={`Downloading: ${progress}%`}>
               <Chip
                 icon={<DownloadIcon sx={{ fontSize: 16 }} />}
@@ -273,7 +320,7 @@ export default function SongCard({ song, index, onClick, onToggleLike, totalSong
             </Tooltip>
           )}
           
-          {currentStage === 'uploading' && (
+          {currentStage === 'uploading' && isProcessing && (
             <Tooltip title={`Uploading to Drive: ${progress}%`}>
               <Chip
                 icon={<UploadIcon sx={{ fontSize: 16 }} />}
@@ -307,7 +354,7 @@ export default function SongCard({ song, index, onClick, onToggleLike, totalSong
             </Tooltip>
           )}
           
-          {isOptimistic && !uploadState && (
+          {isOptimistic && (
             <Chip
               label="Queued"
               size="small"
@@ -318,16 +365,52 @@ export default function SongCard({ song, index, onClick, onToggleLike, totalSong
               }}
             />
           )}
-          
+
           <IconButton
-            onClick={(e) => { e.stopPropagation(); onToggleLike?.(song) }}
-            disabled={isProcessing || hasError}
+            onClick={(e) => { e.stopPropagation(); handleMenuOpen(e); }}
+            size="small"
+          >
+            <MoreVertIcon />
+          </IconButton>
+
+          <IconButton
+            onClick={(e) => { 
+              e.stopPropagation(); 
+              toast.success('Like feature coming soon!');
+            }}
             size="small"
           >
             {song.liked ? <Favorite color="error" /> : <FavoriteBorder sx={{ color: 'text.secondary' }} />}
           </IconButton>
         </Box>
       </Box>
+
+      {/* Options Menu */}
+      <Menu
+        anchorEl={menuAnchor}
+        open={isMenuOpen}
+        onClose={handleMenuClose}
+        onClick={handleMenuClose}
+        PaperProps={{
+          sx: {
+            backgroundColor: 'rgba(31, 41, 55, 0.95)',
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(75, 85, 99, 0.3)',
+          }
+        }}
+      >
+        <MenuItem onClick={(e) => { e.stopPropagation(); handleDelete(); }} sx={{ color: 'error.main' }}>
+          Delete
+        </MenuItem>
+        <MenuItem onClick={(e) => { e.stopPropagation(); handleAddToPlaylist(); }}>
+          Add to Playlist
+        </MenuItem>
+        {isInPlaylist && (
+          <MenuItem onClick={(e) => { e.stopPropagation(); handleRemoveFromPlaylist(); }}>
+            Remove from Playlist
+          </MenuItem>
+        )}
+      </Menu>
     </motion.div>
   )
 }

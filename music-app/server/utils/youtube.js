@@ -1,4 +1,4 @@
-// /utils/youtube.js - Final version that works with Render's read-only cookies
+// /utils/youtube.js - Complete fixed version
 const ytdl = require('@distube/ytdl-core');
 const youtubedl = require('youtube-dl-exec');
 const { spawn } = require('child_process');
@@ -53,21 +53,31 @@ async function getWritableCookiePath() {
   }
 }
 
-// Method 1: Using youtube-dl-exec with writable cookie copy
+// Enhanced Method 1: youtube-dl-exec with better timeout and error handling
 async function streamWithYoutubeDlExec(url, onProgress) {
   try {
-    console.log('🎵 Attempting download with youtube-dl-exec...');
+    console.log('🎵 Starting youtube-dl-exec download...');
     
     const outputStream = new PassThrough();
     
     const options = {
       extractAudio: true,
       audioFormat: 'best',
+      audioQuality: 0, // Best quality
       noCheckCertificate: true,
       noWarnings: true,
       preferFreeFormats: true,
-      addHeader: ['user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'],
+      // Better user agent to avoid detection
+      addHeader: [
+        'user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      ],
       output: '-',
+      // Additional options to improve success rate
+      retries: 3,
+      fragmentRetries: 3,
+      skipUnavailableFragments: true,
+      // Add socket timeout to handle slow downloads
+      socketTimeout: 30, // 30 seconds per chunk
     };
 
     // Get writable cookie path
@@ -79,121 +89,139 @@ async function streamWithYoutubeDlExec(url, onProgress) {
       console.log('🍪 No cookies available, proceeding without');
     }
 
-    // Execute yt-dlp
+    // Execute yt-dlp with longer timeout
     const subprocess = youtubedl.exec(url, options);
     
-    // Pipe stdout directly to output stream
-    subprocess.stdout.pipe(outputStream);
+    // Set up timeout (120 seconds - much longer for slow downloads)
+    const timeout = setTimeout(() => {
+      console.log('⏰ Download timeout after 120 seconds, killing process...');
+      subprocess.kill('SIGKILL');
+      outputStream.destroy(new Error('Download timeout after 120 seconds'));
+    }, 120000); // 2 minutes
     
-    // Track progress from stderr
+    // Track if we've received any data
+    let hasReceivedData = false;
+    
+    // Pipe stdout to output stream
+    subprocess.stdout.on('data', (chunk) => {
+      hasReceivedData = true;
+      outputStream.write(chunk);
+    });
+    
+    subprocess.stdout.on('end', () => {
+      outputStream.end();
+    });
+    
+    // Enhanced progress tracking
     let lastProgress = 0;
+    let hasStartedDownload = false;
+    let downloadSize = null;
+    
     subprocess.stderr.on('data', (data) => {
       const text = data.toString();
       
       // Ignore cookie write errors
       if (text.includes('OSError') || text.includes('Read-only file system')) {
-        return; // Ignore these errors
+        return;
       }
       
-      // Extract progress
-      const match = text.match(/(\d+(?:\.\d+)?%)/);
-      if (match && onProgress) {
-        const percent = Math.floor(parseFloat(match[1]));
+      // Check for download start and extract file size
+      if (text.includes('[download]') && !hasStartedDownload) {
+        hasStartedDownload = true;
+        console.log('📥 Download started');
+        if (onProgress) onProgress(0, 'Starting download...');
+        
+        // Try to extract file size
+        const sizeMatch = text.match(/(\d+(?:\.\d+)?[KMGT]?iB)/);
+        if (sizeMatch) {
+          downloadSize = sizeMatch[1];
+          console.log(`📊 File size: ${downloadSize}`);
+        }
+      }
+      
+      // Extract progress percentage
+      const progressMatch = text.match(/(\d+(?:\.\d+)?)%/);
+      if (progressMatch && onProgress) {
+        const percent = Math.floor(parseFloat(progressMatch[1]));
         if (percent > lastProgress) {
           lastProgress = percent;
-          onProgress(percent);
+          
+          // Try to extract download speed
+          const speedMatch = text.match(/(\d+(?:\.\d+)?[KMGT]?iB\/s)/);
+          const speed = speedMatch ? speedMatch[1] : null;
+          
+          // Try to extract ETA
+          const etaMatch = text.match(/ETA (\d{2}:\d{2})/);
+          const eta = etaMatch ? etaMatch[1] : null;
+          
+          let statusMessage = `Progress: ${percent}%`;
+          if (downloadSize) statusMessage += ` of ${downloadSize}`;
+          if (speed) statusMessage += ` at ${speed}`;
+          if (eta) statusMessage += ` (ETA: ${eta})`;
+          
+          onProgress(percent, statusMessage);
         }
+      }
+      
+      // Check for specific errors that should cause immediate failure
+      if (text.includes('Video unavailable')) {
+        clearTimeout(timeout);
+        outputStream.destroy(new Error('Video is unavailable'));
+      } else if (text.includes('Private video')) {
+        clearTimeout(timeout);
+        outputStream.destroy(new Error('Video is private'));
+      } else if (text.includes('Sign in to confirm your age')) {
+        clearTimeout(timeout);
+        outputStream.destroy(new Error('Video is age-restricted'));
       }
     });
 
     subprocess.on('error', (err) => {
-      if (!err.message.includes('cookies')) {
-        console.error('Process error:', err.message);
+      clearTimeout(timeout);
+      console.error('Process error:', err.message);
+      if (!outputStream.destroyed) {
         outputStream.destroy(err);
       }
     });
 
-    subprocess.on('exit', (code) => {
-      // Exit code 1 is OK if we got data (happens with cookie write errors)
-      if (code === 0) {
+    subprocess.on('exit', (code, signal) => {
+      clearTimeout(timeout);
+      
+      if (signal === 'SIGKILL') {
+        console.log('⚠️ Download was killed (likely timeout)');
+        if (hasReceivedData) {
+          // If we got some data, this might be a timeout during a working download
+          console.log('📊 Partial data received before timeout');
+          if (onProgress) onProgress(99, 'Download incomplete due to timeout');
+        }
+        if (!outputStream.destroyed) {
+          outputStream.destroy(new Error('Download was terminated'));
+        }
+      } else if (code === 0) {
         console.log('✅ Download completed successfully');
+        if (onProgress) onProgress(100, 'Download completed!');
       } else if (code === 1) {
-        console.log('⚠️ Download completed with warnings (likely cookie write error)');
-      } else if (code > 1) {
-        console.error(`❌ yt-dlp exited with code ${code}`);
+        console.log('⚠️ Download completed with warnings');
+        if (onProgress) onProgress(100, 'Download completed with warnings');
+      } else {
+        console.error(`❌ yt-dlp exited with code ${code}, signal: ${signal}`);
+        if (!outputStream.destroyed) {
+          outputStream.destroy(new Error(`Download failed with exit code ${code}`));
+        }
       }
     });
 
     return outputStream;
   } catch (error) {
-    console.error('❌ youtube-dl-exec failed:', error.message);
+    console.error('❌ youtube-dl-exec setup failed:', error.message);
     throw error;
   }
 }
 
-// Method 2: System yt-dlp fallback
-function streamWithSystemYtDlp(url, onProgress) {
-  return new Promise(async (resolve, reject) => {
-    console.log('🎵 Attempting download with system yt-dlp...');
-    
-    const outputStream = new PassThrough();
-    const args = [
-      '-f', 'bestaudio',
-      '-o', '-',
-      '--no-playlist',
-      '--no-check-certificate',
-      '--user-agent', 'Mozilla/5.0',
-      url
-    ];
-
-    // Add cookies if available
-    const cookiePath = await getWritableCookiePath();
-    if (cookiePath) {
-      args.push('--cookies', cookiePath);
-    }
-
-    const commands = ['yt-dlp', 'youtube-dl'];
-    
-    for (const cmd of commands) {
-      try {
-        const proc = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-        console.log(`✅ Found ${cmd}`);
-        
-        proc.stdout.pipe(outputStream);
-        
-        proc.stderr.on('data', (chunk) => {
-          const text = chunk.toString();
-          if (!text.includes('OSError')) {
-            const match = text.match(/(\d+(?:\.\d+)?%)/);
-            if (match && onProgress) {
-              onProgress(Math.floor(parseFloat(match[1])));
-            }
-          }
-        });
-
-        proc.on('close', (code) => {
-          if (code === 0 || code === 1) {
-            resolve(outputStream);
-          } else {
-            reject(new Error(`${cmd} exited with code ${code}`));
-          }
-        });
-
-        proc.on('error', reject);
-        return;
-      } catch (err) {
-        continue;
-      }
-    }
-    
-    reject(new Error('No youtube downloader found'));
-  });
-}
-
-// Method 3: ytdl-core (no cookies needed)
+// Method 2: ytdl-core with enhanced progress tracking
 async function streamWithYtdlCore(url, onProgress) {
   try {
-    console.log('🎵 Attempting download with ytdl-core...');
+    console.log('🎵 Starting ytdl-core download...');
     const normalizedUrl = normalizeYoutubeUrl(url);
     
     const stream = ytdl(normalizedUrl, {
@@ -206,12 +234,29 @@ async function streamWithYtdlCore(url, onProgress) {
     stream.pipe(outputStream);
     
     if (onProgress) {
-      stream.on('progress', (_, downloaded, total) => {
+      let lastPercent = 0;
+      
+      stream.on('progress', (chunkLength, downloaded, total) => {
         const percent = Math.min(99, Math.floor((downloaded / total) * 100));
-        onProgress(percent);
+        
+        if (percent > lastPercent) {
+          lastPercent = percent;
+          
+          // Calculate download speed (rough estimate)
+          const totalMB = (total / (1024 * 1024)).toFixed(1);
+          const downloadedMB = (downloaded / (1024 * 1024)).toFixed(1);
+          
+          const statusMessage = `Progress: ${percent}% (${downloadedMB}MB / ${totalMB}MB)`;
+          onProgress(percent, statusMessage);
+        }
+      });
+      
+      stream.on('end', () => {
+        onProgress(100, 'Download completed!');
       });
     }
     
+    console.log('✅ ytdl-core stream created successfully');
     return outputStream;
   } catch (error) {
     console.error('❌ ytdl-core failed:', error.message);
@@ -219,15 +264,198 @@ async function streamWithYtdlCore(url, onProgress) {
   }
 }
 
+// Method 3: System yt-dlp with enhanced progress tracking
+function streamWithSystemYtDlp(url, onProgress) {
+  return new Promise(async (resolve, reject) => {
+    console.log('🎵 Starting system yt-dlp download...');
+    
+    const outputStream = new PassThrough();
+    const args = [
+      '-f', 'bestaudio',
+      '-o', '-',
+      '--no-playlist',
+      '--no-check-certificate',
+      '--retries', '3',
+      '--fragment-retries', '3',
+      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      url
+    ];
+
+    // Add cookies if available
+    const cookiePath = await getWritableCookiePath();
+    if (cookiePath) {
+      args.push('--cookies', cookiePath);
+      console.log('🍪 Using cookies for system yt-dlp');
+    }
+
+    const commands = ['yt-dlp', 'youtube-dl'];
+    
+    for (const cmd of commands) {
+      try {
+        console.log(`🔍 Trying ${cmd}...`);
+        const proc = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+        
+        console.log(`✅ Found ${cmd}, starting download`);
+        
+        proc.stdout.pipe(outputStream);
+        
+        let lastProgress = 0;
+        
+        proc.stderr.on('data', (chunk) => {
+          const text = chunk.toString();
+          
+          // Ignore cookie/filesystem errors
+          if (text.includes('OSError') || text.includes('Read-only file system')) {
+            return;
+          }
+          
+          // Extract progress
+          const progressMatch = text.match(/(\d+(?:\.\d+)?)%/);
+          if (progressMatch && onProgress) {
+            const percent = Math.floor(parseFloat(progressMatch[1]));
+            if (percent > lastProgress) {
+              lastProgress = percent;
+              
+              // Try to extract additional info
+              const speedMatch = text.match(/(\d+(?:\.\d+)?[KMGT]?iB\/s)/);
+              const speed = speedMatch ? ` at ${speedMatch[1]}` : '';
+              
+              onProgress(percent, `Progress: ${percent}%${speed}`);
+            }
+          }
+          
+          // Log download start
+          if (text.includes('[download]') && text.includes('Destination:')) {
+            if (onProgress) onProgress(0, 'Starting download...');
+          }
+        });
+
+        proc.on('close', (code) => {
+          if (code === 0 || code === 1) {
+            console.log(`✅ ${cmd} completed successfully`);
+            if (onProgress) onProgress(100, 'Download completed!');
+            resolve(outputStream);
+          } else {
+            console.error(`❌ ${cmd} exited with code ${code}`);
+            reject(new Error(`${cmd} exited with code ${code}`));
+          }
+        });
+
+        proc.on('error', (err) => {
+          console.error(`❌ ${cmd} process error:`, err.message);
+          reject(err);
+        });
+        
+        return; // Exit the loop if we successfully started the process
+      } catch (err) {
+        console.log(`⚠️ ${cmd} not found, trying next...`);
+        continue;
+      }
+    }
+    
+    reject(new Error('No youtube downloader found (yt-dlp or youtube-dl)'));
+  });
+}
+
+// Main function with improved fallback logic and progress tracking
+async function createAudioStream(url, onProgress) {
+  const normalizedUrl = normalizeYoutubeUrl(url);
+  console.log(`🎯 Starting download for: ${normalizedUrl}`);
+  
+  // Enhanced progress callback that includes method info
+  const enhancedProgress = (percent, message = '', method = '') => {
+    if (onProgress) {
+      const fullMessage = method ? `[${method}] ${message}` : message;
+      onProgress(percent, fullMessage);
+    }
+  };
+  
+  // Primary method - youtube-dl-exec (most reliable)
+  try {
+    console.log('🥇 Trying youtube-dl-exec (primary method)...');
+    if (onProgress) onProgress(0, 'Initializing youtube-dl-exec...');
+    
+    const stream = await streamWithYoutubeDlExec(normalizedUrl, (percent, msg) => 
+      enhancedProgress(percent, msg, 'yt-dlp')
+    );
+    
+    if (stream) {
+      console.log('✅ Success with youtube-dl-exec');
+      return { stream, method: 'youtube-dl-exec' };
+    }
+  } catch (error) {
+    console.error('❌ youtube-dl-exec failed:', error.message);
+    
+    // Check if it's a rate limit or temporary error
+    const isTemporaryError = error.message.includes('429') || 
+                           error.message.includes('rate') ||
+                           error.message.includes('timeout') ||
+                           error.message.includes('unavailable') ||
+                           error.message.includes('Too Many Requests');
+    
+    if (isTemporaryError) {
+      console.log('⏳ Detected temporary error, waiting 5 seconds before fallback...');
+      if (onProgress) onProgress(0, 'Rate limited, waiting 5 seconds...');
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    } else {
+      console.log('⏳ Waiting 2 seconds before fallback...');
+      if (onProgress) onProgress(0, 'Switching to fallback method...');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+  }
+  
+  // Fallback 1 - ytdl-core (no external deps, different approach)
+  try {
+    console.log('🥈 Trying ytdl-core (fallback 1)...');
+    if (onProgress) onProgress(0, 'Initializing ytdl-core...');
+    
+    const stream = await streamWithYtdlCore(normalizedUrl, (percent, msg) => 
+      enhancedProgress(percent, msg, 'ytdl-core')
+    );
+    
+    if (stream) {
+      console.log('✅ Success with ytdl-core');
+      return { stream, method: 'ytdl-core' };
+    }
+  } catch (error) {
+    console.error('❌ ytdl-core failed:', error.message);
+    console.log('⏳ Waiting 3 seconds before final fallback...');
+    if (onProgress) onProgress(0, 'Trying final fallback method...');
+    await new Promise(resolve => setTimeout(resolve, 3000));
+  }
+  
+  // Final fallback - system ytdlp (different binary version might work)
+  try {
+    console.log('🥉 Trying system ytdlp (final fallback)...');
+    if (onProgress) onProgress(0, 'Initializing system yt-dlp...');
+    
+    const stream = await streamWithSystemYtDlp(normalizedUrl, (percent, msg) => 
+      enhancedProgress(percent, msg, 'system-ytdlp')
+    );
+    
+    if (stream) {
+      console.log('✅ Success with system ytdlp');
+      return { stream, method: 'system-ytdlp' };
+    }
+  } catch (error) {
+    console.error('❌ All methods failed. Last error:', error.message);
+    if (onProgress) onProgress(0, 'All download methods failed');
+    
+    throw new Error(`All download methods failed. YouTube might be blocking requests or the video is unavailable. Last error: ${error.message}`);
+  }
+}
+
+// Enhanced video info function
 async function getVideoInfo(url) {
   const normalizedUrl = normalizeYoutubeUrl(url);
+  console.log('🔍 Fetching video information...');
   
   try {
     const options = {
       dumpSingleJson: true,
       noCheckCertificate: true,
       noWarnings: true,
-      addHeader: ['user-agent:Mozilla/5.0'],
+      addHeader: ['user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'],
     };
     
     // Use writable cookie copy
@@ -237,48 +465,46 @@ async function getVideoInfo(url) {
     }
     
     const info = await youtubedl(normalizedUrl, options);
-    return {
-      title: info.title || 'Unknown Title',
+    
+    const result = {
+      title: sanitizeFileName(info.title || 'Unknown Title'),
       duration: info.duration,
-      thumbnail: info.thumbnail
+      thumbnail: info.thumbnail,
+      uploader: info.uploader,
+      upload_date: info.upload_date,
+      view_count: info.view_count,
+      like_count: info.like_count,
+      description: info.description ? info.description.substring(0, 500) : null
     };
+    
+    console.log(`✅ Video info retrieved: "${result.title}"`);
+    return result;
   } catch (error) {
     console.warn('⚠️ Video info failed, using defaults:', error.message.split('\n')[0]);
     return {
       title: 'Unknown Title',
       duration: null,
-      thumbnail: null
+      thumbnail: null,
+      uploader: null,
+      upload_date: null,
+      view_count: null,
+      like_count: null,
+      description: null
     };
   }
 }
 
-async function createAudioStream(url, onProgress) {
-  const normalizedUrl = normalizeYoutubeUrl(url);
-  
-  const methods = [
-    { name: 'youtube-dl-exec', func: () => streamWithYoutubeDlExec(normalizedUrl, onProgress) },
-    { name: 'system-ytdlp', func: () => streamWithSystemYtDlp(normalizedUrl, onProgress) },
-    { name: 'ytdl-core', func: () => streamWithYtdlCore(normalizedUrl, onProgress) }
-  ];
+// Add process-level error handlers to prevent crashes
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't crash the process, just log the error
+});
 
-  let lastError = null;
-  
-  for (const method of methods) {
-    try {
-      console.log(`🔄 Trying ${method.name}...`);
-      const stream = await method.func();
-      if (stream) {
-        console.log(`✅ Successfully created stream with ${method.name}`);
-        return { stream, info: null };
-      }
-    } catch (error) {
-      console.error(`❌ ${method.name} failed:`, error.message);
-      lastError = error;
-    }
-  }
-
-  throw lastError || new Error('All download methods failed');
-}
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error);
+  // For uncaught exceptions, we should exit gracefully
+  process.exit(1);
+});
 
 module.exports = {
   sanitizeFileName,

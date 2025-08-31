@@ -21,7 +21,7 @@ router.get('/profile', authenticateUser, async (req, res) => {
     });
     
   } catch (error) {
-    console.error(`❌ Error fetching profile for user ${req.userId}:`, error.message);
+    console.error(`Error fetching profile for user ${req.userId}:`, error.message);
     res.status(500).json({ message: 'Failed to fetch user profile' });
   }
 });
@@ -46,7 +46,7 @@ router.put('/profile', authenticateUser, async (req, res) => {
     });
     
   } catch (error) {
-    console.error(`❌ Error updating profile for user ${req.userId}:`, error.message);
+    console.error(`Error updating profile for user ${req.userId}:`, error.message);
     res.status(500).json({ message: 'Failed to update profile' });
   }
 });
@@ -57,12 +57,10 @@ router.delete('/account', authenticateUser, async (req, res) => {
     // Mark user as inactive instead of deleting
     req.user.isActive = false;
     await req.user.save();
-    
-    console.log(`🗑️ User account ${req.user.googleId} deactivated`);
     res.json({ message: 'Account deactivated successfully' });
     
   } catch (error) {
-    console.error(`❌ Error deactivating account for user ${req.userId}:`, error.message);
+    console.error(`Error deactivating account for user ${req.userId}:`, error.message);
     res.status(500).json({ message: 'Failed to deactivate account' });
   }
 });

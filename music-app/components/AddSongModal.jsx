@@ -32,7 +32,7 @@ const Transition = forwardRef(function Transition(props, ref) {
   return <Slide direction="up" ref={ref} {...props} />
 })
 
-export default function AddSongModal({ isOpen, onClose, onSongAdded, fetchSongsFromDrive }) {
+export default function AddSongModal({ isOpen, onClose, onSongAdded }) {
   const [youtubeUrl, setYoutubeUrl] = useState('')
   const [fileName, setFileName] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -79,12 +79,15 @@ export default function AddSongModal({ isOpen, onClose, onSongAdded, fetchSongsF
     setIsLoading(true)
 
     try {
+      console.log('🚀 Starting upload request...')
       const response = await apiClient.post('/api/upload/start', {
         youtubeUrl: youtubeUrl.trim(),
         fileName: sanitizeFileName(fileName.trim())
       })
       
       const { fileId, fileName: srvFileName, videoTitle, uploadId } = response.data || {}
+      console.log('📄 Upload response:', { fileId, srvFileName, videoTitle, uploadId })
+      
       const optimisticId = fileId || uploadId || `temp-${Date.now()}`
       const provisionalName = srvFileName || (fileName.trim() ? sanitizeFileName(fileName.trim()) + '.webm' : (videoTitle ? sanitizeFileName(videoTitle) + '.webm' : 'Processing.webm'))
 
@@ -94,31 +97,38 @@ export default function AddSongModal({ isOpen, onClose, onSongAdded, fetchSongsF
         name: provisionalName,
         videoTitle: videoTitle || 'Processing…',
         size: null,
-        stage: uploadId ? 'uploading' : 'starting',
+        stage: uploadId ? 'starting' : 'starting',
+        progress: 0,
         createdTime: new Date().toISOString(),
         liked: false,
-        isOptimistic: true
+        isOptimistic: true,
+        isActive: true
       }
 
-      // Add to upload store for tracking
+      // Add to upload store for progress tracking - FIXED: only pass uploadId
       if (uploadId) {
-        addUpload(uploadId)
+        console.log('📊 Adding upload to store:', uploadId)
+        addUpload(uploadId) // Only pass uploadId, not extra data
+      } else {
+        console.warn('⚠️ No uploadId received from server')
       }
 
+      // Add the optimistic song to the main song list
+      console.log('📤 Adding optimistic song to main list...')
       onSongAdded(newSong)
-      toast.success('Upload started! Track progress below.', { duration: 3000 })
+      
+      console.log('✅ Upload started successfully, should see song in list now')
+      toast.success('Upload started! Track progress in the bottom-right corner.', { duration: 4000 })
 
+      // Close modal if not hidden
       if (!isHidden) {
         setYoutubeUrl('')
         setFileName('')
         onClose()
       }
-      setTimeout(() => {
-        fetchSongsFromDrive()
-      }, 5000);
 
     } catch (error) {
-      console.error('Error adding song:', error)
+      console.error('❌ Error adding song:', error)
       
       if (error.response?.status === 401) {
         setError('Authentication required. Please refresh the page.')

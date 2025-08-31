@@ -29,7 +29,7 @@ import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import apiClient from '../lib/api'
 
-export default function Home() {
+const Home = () => {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
 
@@ -51,10 +51,7 @@ export default function Home() {
     return () => window.removeEventListener('open-add-song', handleOpenAddSong)
   }, [])
 
-  // Listen for upload completion to refresh song list
-  // (Moved below after fetchSongs declaration to avoid using the function before it's defined)
 
-  // --- FETCH SONGS FROM DRIVE ---
   const fetchSongs = useCallback(async () => {
     try {
       if (songs.length === 0) {
@@ -63,7 +60,6 @@ export default function Home() {
 
       const response = await apiClient.get('/api/songs')
       const serverSongs = Array.isArray(response.data) ? response.data : []
-
       // Preserve optimistic songs (songs that are still uploading)
       const optimisticSongs = songs.filter(song => song.isOptimistic)
       
@@ -88,10 +84,16 @@ export default function Home() {
     } finally {
       setIsLoading(false)
     }
-  }, [songs, setSongs])
+  }, [songs, setSongs ])
 
-  // Listen for upload completion to refresh song list
-  // Updated section of page.js - replace the useEffect for upload completion
+
+    const handleSongAdded = (newSong) => {
+    fetchSongs() // Refresh to get accurate data from server
+    toast.success(`"${newSong.videoTitle || newSong.name}" added!`)
+  }
+    const handleSongDeleted = useCallback(() => {
+    fetchSongs() 
+  }, [setSongs, fetchSongs])
 
   // Listen for upload completion to refresh song list
   useEffect(() => {
@@ -100,11 +102,9 @@ export default function Home() {
       console.log('Upload completed:', event.detail);
 
       if (success) {
-        // Refresh the songs list to get the completed upload
         await fetchSongs();
         toast.success('Song upload completed!');
       } else {
-        // Remove the optimistic song on failure or cancellation
         setSongs(prev => {
           const filtered = prev.filter(song => song.uploadId !== uploadId);
           console.log('Removing failed upload from UI:', uploadId);
@@ -122,14 +122,12 @@ export default function Home() {
 
     window.addEventListener('upload-complete', handleUploadComplete);
     return () => window.removeEventListener('upload-complete', handleUploadComplete);
-  }, [fetchSongs, setSongs]);
+  }, [fetchSongs, setSongs , handleSongAdded ,handleSongDeleted ]);
 
   const handleSongClick = (song, index) => setCurrentSong(song, index)
 
-  const handleSongAdded = (newSong) => {
-    setSongs(prev => [newSong, ...(Array.isArray(prev) ? prev : [])])
-    toast.success(`"${newSong.videoTitle || newSong.name}" added!`)
-  }
+
+// ...existing code...
 
   // Show loading while checking authentication
   if (authLoading) {
@@ -265,6 +263,7 @@ export default function Home() {
                   index={index}
                   totalSongs={songs.length}
                   onClick={() => handleSongClick(song, index)}
+                  onSongDeleted={handleSongDeleted}
                 />
               ))}
             </Box>
@@ -282,3 +281,5 @@ export default function Home() {
     </>
   )
 }
+
+export default Home

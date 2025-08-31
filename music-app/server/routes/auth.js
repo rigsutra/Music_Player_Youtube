@@ -29,8 +29,7 @@ router.get('/google', (req, res) => {
     prompt: 'consent',
     state
   });
-  
-  console.log('🔐 Redirecting to Google OAuth...');
+
   res.redirect(url);
 });
 
@@ -60,8 +59,6 @@ router.get('/google/callback', async (req, res) => {
     
     const { id: googleId, email, name, picture } = userInfo.data;
     
-    console.log(`🔐 User ${googleId} (${email}) authenticating...`);
-    
     // Find or create user
     let user = await User.findOne({ googleId });
     
@@ -72,7 +69,6 @@ router.get('/google/callback', async (req, res) => {
       user.picture = picture;
       user.googleTokens = tokens;
       user.isActive = true;
-      console.log(`✅ Existing user ${googleId} updated`);
     } else {
       // Create new user
       user = new User({
@@ -82,12 +78,10 @@ router.get('/google/callback', async (req, res) => {
         picture,
         googleTokens: tokens
       });
-      console.log(`🆕 New user ${googleId} created`);
     }
     
     await user.save();
 
-    console.log("User information retrieved successfully");
     // Create JWT token
     const jwtToken = jwt.sign(
       { userId: user._id, email, googleId },
@@ -95,7 +89,6 @@ router.get('/google/callback', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    console.log("redirect with token");
     // Redirect with token
     const redirectUrl = process.env.NODE_ENV === 'production'
       ? `${process.env.NEXT_PUBLIC_PROD_FRONTEND_API}?auth=success&token=${jwtToken}`
@@ -104,7 +97,7 @@ router.get('/google/callback', async (req, res) => {
     res.redirect(redirectUrl);
     
   } catch (error) {
-    console.error('❌ OAuth callback error:', error.message);
+    console.error('OAuth callback error:', error.message);
     const redirectUrl = process.env.NODE_ENV === 'production'
       ? `${process.env.NEXT_PUBLIC_PROD_FRONTEND_API}?auth=error`
       : 'http://localhost:3000?auth=error';
@@ -155,14 +148,9 @@ router.get('/status', async (req, res) => {
 // Logout
 router.post('/logout', authenticateUser, async (req, res) => {
   try {
-    // Optional: Could mark user as inactive or clear tokens
-    // req.user.isActive = false;
-    // await req.user.save();
-    
-    console.log(`🚪 User ${req.user.googleId} logged out`);
     res.json({ message: 'Logged out successfully' });
   } catch (error) {
-    console.error('❌ Logout error:', error.message);
+    console.error('Logout error:', error.message);
     res.status(500).json({ message: 'Logout failed' });
   }
 });

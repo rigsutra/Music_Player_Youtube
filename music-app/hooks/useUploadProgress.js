@@ -16,8 +16,6 @@ export default function useUploadProgress(uploadId, onComplete) {
       return;
     }
 
-    console.log("token" , token)
-
     // Pass token as query parameter for EventSource
     const sseUrl = `${API_BASE}/api/upload/progress/${uploadId}/stream?token=${encodeURIComponent(token)}`;
     

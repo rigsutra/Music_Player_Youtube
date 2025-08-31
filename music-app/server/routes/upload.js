@@ -19,14 +19,12 @@ router.post('/start', authenticateUser, async (req, res) => {
 
     const uploadId = crypto.randomUUID();
     
-    console.log(`🎵 User ${req.user.googleId} starting upload: ${youtubeUrl}`);
-    
     // Get video info with error handling
     let videoInfo;
     try {
       videoInfo = await getVideoInfo(youtubeUrl);
     } catch (error) {
-      console.error('⚠️ Could not fetch video info, using defaults:', error.message);
+      console.error('Could not fetch video info, using defaults:', error.message);
       videoInfo = {
         title: fileName || 'Downloaded Audio',
         duration: null,
@@ -56,11 +54,11 @@ router.post('/start', authenticateUser, async (req, res) => {
     
     // Process upload asynchronously
     processUpload(upload).catch(error => {
-      console.error(`❌ Async upload processing failed for ${uploadId}:`, error.message);
+      console.error(`Async upload processing failed for ${uploadId}:`, error.message);
     });
     
   } catch (error) {
-    console.error(`❌ Upload start error for user ${req.userId}:`, error.message);
+    console.error(`Upload start error for user ${req.userId}:`, error.message);
     res.status(500).json({
       message: 'Failed to start upload',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -94,7 +92,7 @@ router.get('/progress/:uploadId', authenticateUser, async (req, res) => {
     });
     
   } catch (error) {
-    console.error(`❌ Progress check error:`, error.message);
+    console.error(`Progress check error:`, error.message);
     res.status(500).json({
       progress: 0,
       stage: 'error'
@@ -120,12 +118,10 @@ router.post('/cancel/:uploadId', authenticateUser, async (req, res) => {
     upload.stage = 'canceled';
     upload.isActive = false;
     await upload.save();
-    
-    console.log(`🚫 Upload canceled by user ${req.user.googleId}: ${uploadId}`);
     res.json({ message: 'Upload canceled' });
     
   } catch (error) {
-    console.error('❌ Cancel upload error:', error.message);
+    console.error('Cancel upload error:', error.message);
     res.status(500).json({ message: 'Failed to cancel upload' });
   }
 });
@@ -152,17 +148,15 @@ router.post('/retry/:uploadId', authenticateUser, async (req, res) => {
     upload.isActive = true;
     upload.retryCount = (upload.retryCount || 0) + 1;
     await upload.save();
-    
-    console.log(`🔄 Retrying upload ${uploadId} (attempt ${upload.retryCount})`);
     res.json({ message: 'Upload retry started', retryCount: upload.retryCount });
     
     // Process upload again
     processUpload(upload).catch(error => {
-      console.error(`❌ Retry failed for ${uploadId}:`, error.message);
+      console.error(`Retry failed for ${uploadId}:`, error.message);
     });
     
   } catch (error) {
-    console.error('❌ Retry upload error:', error.message);
+    console.error('Retry upload error:', error.message);
     res.status(500).json({ message: 'Failed to retry upload' });
   }
 });
@@ -173,7 +167,6 @@ router.post('/retry/:uploadId', authenticateUser, async (req, res) => {
 router.get('/progress/:uploadId/stream', async (req, res) => {
   const { uploadId } = req.params;
   
-  // Get token from query parameter since EventSource doesn't support headers
   const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
   
   if (!token) {
@@ -199,7 +192,6 @@ router.get('/progress/:uploadId/stream', async (req, res) => {
       'X-Accel-Buffering': 'no' // Prevent nginx buffering
     });
 
-    // Send initial ping
     res.write(':ok\n\n');
 
     const interval = setInterval(async () => {
@@ -254,23 +246,15 @@ router.get('/progress/:uploadId/stream', async (req, res) => {
   }
 });
 
-// Updated processUpload function for /routes/upload.js
-// Replace the existing processUpload function with this one
-
-// Fixed processUpload function for /routes/upload.js
-// Replace the existing processUpload function with this one
 
 async function processUpload(upload) {
   let progressUpdateInterval = null;
   let isSaving = false; // Flag to prevent parallel saves
   
   try {
-    console.log(`🔄 Processing upload ${upload.uploadId}`);
-
     // Check if canceled before starting
     const checkUpload = await Upload.findById(upload._id);
     if (checkUpload.stage === 'canceled') {
-      console.log(`Upload ${upload.uploadId} was canceled before processing`);
       return;
     }
 
@@ -300,7 +284,6 @@ async function processUpload(upload) {
             if (currentUpload && currentUpload.stage === 'downloading') {
               currentUpload.progress = Math.min(99, progress);
               await currentUpload.save();
-              console.log(`📊 Download progress for ${upload.uploadId}: ${progress}%`);
             }
           } catch (e) {
             console.error('Failed to save progress:', e.message);
@@ -315,7 +298,7 @@ async function processUpload(upload) {
         throw new Error('No stream returned from createAudioStream');
       }
     } catch (err) {
-      console.error(`❌ Failed to create audio stream for ${upload.uploadId}:`, err.message);
+      console.error(`Failed to create audio stream for ${upload.uploadId}:`, err.message);
       
       // Save error state (re-fetch to avoid conflicts)
       const errorUpload = await Upload.findById(upload._id);
@@ -356,7 +339,6 @@ async function processUpload(upload) {
     // Check if canceled before uploading
     const checkUpload2 = await Upload.findById(upload._id);
     if (checkUpload2.stage === 'canceled') {
-      console.log(`Upload ${upload.uploadId} was canceled after download`);
       return;
     }
 
@@ -383,7 +365,6 @@ async function processUpload(upload) {
         if (currentUpload && currentUpload.stage === 'uploading') {
           currentUpload.progress = estimatedProgress;
           await currentUpload.save();
-          console.log(`📤 Upload progress for ${upload.uploadId}: ${estimatedProgress}%`);
         } else {
           clearInterval(progressUpdateInterval);
         }
@@ -405,7 +386,7 @@ async function processUpload(upload) {
       );
     } catch (err) {
       clearInterval(progressUpdateInterval);
-      console.error(`❌ Google Drive upload failed for ${upload.uploadId}:`, err.message);
+      console.error(`Google Drive upload failed for ${upload.uploadId}:`, err.message);
       
       // Save error state
       const errorUpload = await Upload.findById(upload._id);
@@ -431,7 +412,6 @@ async function processUpload(upload) {
       completeUpload.googleFileId = fileId;
       completeUpload.isActive = false;
       await completeUpload.save();
-      console.log(`✅ Upload completed: ${upload.uploadId} -> ${fileId}`);
     }
 
   } catch (error) {
@@ -440,7 +420,7 @@ async function processUpload(upload) {
       clearInterval(progressUpdateInterval);
     }
     
-    console.error(`❌ Upload processing failed for ${upload.uploadId}:`, error.message);
+    console.error(`Upload processing failed for ${upload.uploadId}:`, error.message);
     
     // Final error save
     if (!isSaving) {

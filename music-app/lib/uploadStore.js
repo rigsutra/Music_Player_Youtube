@@ -2,21 +2,32 @@
 import { create } from 'zustand';
 
 export const useUploadStore = create((set) => ({
-  uploads: {}, // { uploadId: { progress, stage } }
+  uploads: {}, // { uploadId: { progress, stage, videoTitle, fileName, googleFileId, error } }
 
-  addUpload: (uploadId) =>
+  addUpload: (uploadId, initialData = {}) =>
     set((state) => {
-      console.log('🎯 Adding upload to store:', uploadId);
       return {
-        uploads: { ...state.uploads, [uploadId]: { progress: 0, stage: 'starting' } },
+        uploads: { 
+          ...state.uploads, 
+          [uploadId]: { 
+            progress: 0, 
+            stage: 'starting',
+            ...initialData
+          } 
+        },
       };
     }),
 
   updateUpload: (uploadId, data) =>
     set((state) => {
-      console.log('🔄 Updating upload in store:', uploadId, data);
       return {
-        uploads: { ...state.uploads, [uploadId]: { ...state.uploads[uploadId], ...data } },
+        uploads: { 
+          ...state.uploads, 
+          [uploadId]: { 
+            ...state.uploads[uploadId], 
+            ...data 
+          } 
+        },
       };
     }),
 
@@ -26,4 +37,7 @@ export const useUploadStore = create((set) => ({
       delete newUploads[uploadId];
       return { uploads: newUploads };
     }),
+
+  // Helper to get upload by id
+  getUpload: (uploadId) => (state) => state.uploads[uploadId],
 }));

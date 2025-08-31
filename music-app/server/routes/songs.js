@@ -1,4 +1,4 @@
-// /routes/songs.js - Song management routes
+// /routes/songs.js - Fixed to include stage information
 const express = require('express');
 const { authenticateUser } = require('../middleware/auth');
 const googleDriveService = require('../services/googleDriveService');
@@ -12,33 +12,44 @@ router.get('/', authenticateUser, async (req, res) => {
     
     const files = await googleDriveService.listUserFiles(req.userId);
     
-    // Get upload records for completed files to include uploadId
+    // Get upload records for ALL files (not just completed) to include full upload info
     const uploads = await Upload.find({
       userId: req.userId,
-      stage: 'done',
       googleFileId: { $in: files.map(f => f.id) }
-    }).select('uploadId googleFileId videoTitle');
+    }).select('uploadId googleFileId videoTitle stage progress isActive error');
     
-    // Create lookup map
+    // Create lookup map with full upload info
     const uploadMap = uploads.reduce((map, upload) => {
       map[upload.googleFileId] = {
         uploadId: upload.uploadId,
-        videoTitle: upload.videoTitle
+        videoTitle: upload.videoTitle,
+        stage: upload.stage,
+        progress: upload.progress || 0,
+        isActive: upload.isActive,
+        error: upload.error
       };
       return map;
     }, {});
     
-    // Enhance files with upload info
-    const enhancedFiles = files.map(file => ({
-      ...file,
-      uploadId: uploadMap[file.id]?.uploadId || null,
-      videoTitle: uploadMap[file.id]?.videoTitle || file.name
-    }));
+    // Enhance files with complete upload info
+    const enhancedFiles = files.map(file => {
+      const uploadInfo = uploadMap[file.id];
+      return {
+        ...file,
+        uploadId: uploadInfo?.uploadId || null,
+        videoTitle: uploadInfo?.videoTitle || file.name,
+        stage: uploadInfo?.stage || 'done', // Default to 'done' for files without upload records
+        progress: uploadInfo?.progress || 100, // Default to 100% for completed files
+        isActive: uploadInfo?.isActive || false,
+        error: uploadInfo?.error || null,
+        isOptimistic: false // Since these are real files from Drive, they're not optimistic
+      };
+    });
     
     res.json(enhancedFiles);
     
   } catch (error) {
-    console.error(`❌ Error fetching songs for user ${req.userId}:`, error.message);
+    console.error(`Error fetching songs for user ${req.userId}:`, error.message);
     
     if (error.message.includes('User not found')) {
       return res.status(401).json({
@@ -94,7 +105,7 @@ router.get('/stream/:fileId', authenticateUser, async (req, res) => {
       });
       
       partial.data.on('error', e => {
-        console.error('❌ Partial stream error:', e.message);
+        console.error('Partial stream error:', e.message);
         if (!res.headersSent) res.end();
       });
       
@@ -116,7 +127,7 @@ router.get('/stream/:fileId', authenticateUser, async (req, res) => {
       });
       
       full.data.on('error', e => {
-        console.error('❌ Full stream error:', e.message);
+        console.error('Full stream error:', e.message);
         if (!res.headersSent) res.end();
       });
       
@@ -124,7 +135,6 @@ router.get('/stream/:fileId', authenticateUser, async (req, res) => {
     }
     
   } catch (error) {
-    console.error(`❌ Error streaming file for user ${req.userId}:`, error.message);
     
     if (error.message.includes('Access denied')) {
       return res.status(403).send(error.message);
@@ -149,12 +159,16 @@ router.delete('/:fileId', authenticateUser, async (req, res) => {
     const { drive } = await googleDriveService.streamFile(req.userId, fileId);
     
     await drive.files.delete({ fileId });
-    
-    console.log(`🗑️ User ${req.user.googleId} deleted file ${fileId}`);
+
+    // Also clean up the upload record if it exists
+    await Upload.deleteOne({ 
+      userId: req.userId, 
+      googleFileId: fileId 
+    });
+
     res.json({ message: 'Song deleted successfully' });
     
   } catch (error) {
-    console.error(`❌ Error deleting file for user ${req.userId}:`, error.message);
     res.status(500).json({ message: 'Failed to delete song' });
   }
 });
