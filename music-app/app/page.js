@@ -54,9 +54,9 @@ const Home = () => {
 
   const fetchSongs = useCallback(async () => {
     try {
-      if (songs.length === 0) {
-        setIsLoading(true)
-      }
+      // if (songs.length === 0) {
+      //   setIsLoading(true)
+      // }
 
       const response = await apiClient.get('/api/songs')
       const serverSongs = Array.isArray(response.data) ? response.data : []
@@ -99,7 +99,6 @@ const Home = () => {
   useEffect(() => {
     const handleUploadComplete = async (event) => {
       const { uploadId, success, error } = event.detail;
-      console.log('Upload completed:', event.detail);
 
       if (success) {
         await fetchSongs();
@@ -107,7 +106,6 @@ const Home = () => {
       } else {
         setSongs(prev => {
           const filtered = prev.filter(song => song.uploadId !== uploadId);
-          console.log('Removing failed upload from UI:', uploadId);
           return filtered;
         });
         
