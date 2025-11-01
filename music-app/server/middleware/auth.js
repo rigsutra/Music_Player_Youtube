@@ -28,8 +28,17 @@ const authenticateUser = async (req, res, next) => {
     }
 
     // Update last active time
-    user.lastActiveAt = new Date();
-    await user.save();
+    // user.lastActiveAt = new Date();
+    // await user.save();
+    const FIVE_MINUTES = 5 * 60 * 1000;
+    const now = new Date();
+    
+    if (!user.lastActiveAt || (now.getTime() - new Date(user.lastActiveAt).getTime()) > FIVE_MINUTES) {
+        // Use findByIdAndUpdate for an efficient, single-operation update
+        await User.findByIdAndUpdate(user._id, { $set: { lastActiveAt: now } });
+        // Update the in-memory user object for the rest of the request lifecycle
+        user.lastActiveAt = now; 
+    }
 
     // Attach user to request
     req.user = user;
