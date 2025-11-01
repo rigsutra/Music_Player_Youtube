@@ -1,4 +1,4 @@
-// /components/SongCard.js - Fixed processing logic
+// /components/SongCard.js - FIXED: Removed useUploadProgress call
 'use client'
 
 import { Box, Typography, IconButton, Chip, LinearProgress, Tooltip, Button, Menu, MenuItem } from '@mui/material'
@@ -18,7 +18,6 @@ import { motion } from 'framer-motion'
 import { useState } from 'react'
 import { useMusicStore } from '../lib/store'
 import { formatFileSize } from '../lib/utils'
-import useUploadProgress from '../hooks/useUploadProgress'
 import { useUploadStore } from '../lib/uploadStore'
 import apiClient from '../lib/api'
 import toast from 'react-hot-toast'
@@ -33,15 +32,14 @@ export default function SongCard({ song, index, onClick, onToggleLike, totalSong
   const [menuAnchor, setMenuAnchor] = useState(null)
   const isMenuOpen = Boolean(menuAnchor)
 
-  // Track upload progress ONLY if this is an active upload
+  // FIXED: Don't call useUploadProgress here - just read from the store
+  // The UploadProgressManager handles all SSE connections centrally
   const shouldTrackProgress = song.uploadId && song.isActive
-  useUploadProgress(shouldTrackProgress ? song.uploadId : null)
-
+  
   // Read live upload state from the upload store (only for active uploads)
   const uploadState = shouldTrackProgress ? useUploadStore((s) => s.uploads[song.uploadId]) : null
   
   // Determine the current stage and progress
-  // Priority: live upload state > database stage > default 'done'
   const currentStage = uploadState?.stage || song.stage || 'done'
   const progress = uploadState?.progress || song.progress || (currentStage === 'done' ? 100 : 0)
   const error = uploadState?.error || song.error
@@ -49,7 +47,7 @@ export default function SongCard({ song, index, onClick, onToggleLike, totalSong
   // Determine processing state
   const isUploading = ['starting', 'downloading', 'uploading'].includes(currentStage) && song.isActive
   const hasError = currentStage === 'error'
-  const isOptimistic = song.isOptimistic === true && !uploadState // Only true optimistic songs
+  const isOptimistic = song.isOptimistic === true && !uploadState
   const isProcessing = isUploading || isOptimistic
   
   // Display name
@@ -134,9 +132,6 @@ export default function SongCard({ song, index, onClick, onToggleLike, totalSong
 
   const songName = displayName
   const dateAdded = new Date(song.createdTime).toLocaleDateString()
-
-  // // Debug logging (remove in production)
-  // console.log(`Song ${song.id} - Stage: ${currentStage}, Processing: ${isProcessing}, Optimistic: ${isOptimistic}, Active: ${song.isActive}`)
 
   return (
     <motion.div 
@@ -259,7 +254,8 @@ export default function SongCard({ song, index, onClick, onToggleLike, totalSong
               {isProcessing || hasError ? (
                 <>
                   {getStageLabel()}
-                  {error && !hasError && ` • ${error}`}
+                  {/* {error && !hasError && ` • ${error}`} */}
+                  {hasError && error && ` • ${error}`}
                 </>
               ) : (
                 <>

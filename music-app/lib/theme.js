@@ -96,7 +96,8 @@ export const theme = createTheme({
           boxShadow: '0 8px 25px rgba(139, 92, 246, 0.3)',
           '&:hover': {
             background: 'linear-gradient(135deg, #7c3aed 0%, #db2777 100%)',
-            boxShadow: '0 12px 30px rgba(139, 92, 246, 0.4)',
+            // boxShadow: '0 12px 30px rgba(139, 92, 246, 0.4)',
+            boxShadow: '0 0 20px rgba(236, 72, 153, 0.6), 0 0 10px rgba(139, 92, 246, 0.4)',
           },
         },
       },
