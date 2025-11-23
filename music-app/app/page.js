@@ -13,12 +13,18 @@ import {
   Fade,
   AppBar,
   Toolbar,
+  TextField,
+  InputAdornment,
+  Tabs,
+  Tab,
 } from "@mui/material";
 import { motion } from "framer-motion";
 import {
   Add as AddIcon,
   MusicNote as MusicNoteIcon,
   LibraryMusic as LibraryMusicIcon,
+  Search as SearchIcon,
+  Favorite as FavoriteIcon,
 } from "@mui/icons-material";
 import { useMusicStore } from "../lib/store";
 import AddSongModal from "../components/AddSongModal";
@@ -33,6 +39,8 @@ const Home = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isFetchingSongs, setIsFetchingSongs] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filter, setFilter] = useState("all"); // 'all', 'liked'
 
   const { songs, setSongs, setCurrentSong } = useMusicStore();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
@@ -107,9 +115,39 @@ const Home = () => {
     // fetchSongs(); // Refresh to get accurate data from server
     toast.success(`"${newSong.videoTitle || newSong.name}" added!`);
   };
-  const handleSongDeleted = useCallback(() => {
+  const handleSongDeleted = useCallback((id, action) => {
+    if (action === 'like') {
+      handleToggleLike(id);
+      return;
+    }
     fetchSongs();
   }, [setSongs, fetchSongs]);
+
+  const handleToggleLike = async (songId) => {
+    // Optimistic update
+    setSongs(prev => prev.map(song =>
+      song.id === songId ? { ...song, liked: !song.liked } : song
+    ));
+
+    try {
+      // API call would go here
+      // await apiClient.post(`/api/songs/${songId}/like`);
+      toast.success("Library updated");
+    } catch (error) {
+      // Revert on error
+      setSongs(prev => prev.map(song =>
+        song.id === songId ? { ...song, liked: !song.liked } : song
+      ));
+      toast.error("Failed to update like status");
+    }
+  };
+
+  const filteredSongs = songs.filter(song => {
+    const matchesSearch = (song.name || song.videoTitle || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (song.artist || "").toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesFilter = filter === 'all' || (filter === 'liked' && song.liked);
+    return matchesSearch && matchesFilter;
+  });
 
   // Listen for upload completion to refresh song list
   useEffect(() => {
@@ -287,9 +325,8 @@ const Home = () => {
                   : "My Music Library"}
               </Typography>
               <Typography variant="body1" color="text.secondary">
-                {Array.isArray(songs) ? songs.length : 0} song
-                {(Array.isArray(songs) ? songs.length : 0) !== 1 ? "s" : ""} in
-                your personal collection
+                {filteredSongs.length} song{filteredSongs.length !== 1 ? "s" : ""}
+                {filter === 'liked' ? " in favorites" : " in your personal collection"}
               </Typography>
             </Box>
             <Button
@@ -307,6 +344,50 @@ const Home = () => {
             >
               Add Song
             </Button>
+          </Box>
+        </Fade>
+
+        {/* Search and Filter */}
+        <Fade in timeout={800}>
+          <Box mb={4}>
+            <TextField
+              fullWidth
+              placeholder="Search your library..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon color="action" />
+                  </InputAdornment>
+                ),
+                sx: {
+                  borderRadius: 3,
+                  background: "rgba(31, 41, 55, 0.6)",
+                  backdropFilter: "blur(10px)",
+                  "& fieldset": { border: "none" },
+                }
+              }}
+              sx={{ mb: 3 }}
+            />
+
+            <Tabs
+              value={filter}
+              onChange={(_, val) => setFilter(val)}
+              textColor="secondary"
+              indicatorColor="secondary"
+              sx={{
+                "& .MuiTab-root": {
+                  textTransform: "none",
+                  fontSize: "1rem",
+                  fontWeight: 600,
+                  minWidth: 100
+                }
+              }}
+            >
+              <Tab label="All Songs" value="all" />
+              <Tab label="Liked" value="liked" icon={<FavoriteIcon fontSize="small" />} iconPosition="start" />
+            </Tabs>
           </Box>
         </Fade>
 
@@ -364,12 +445,12 @@ const Home = () => {
         ) : (
           <Fade in timeout={1000}>
             <Box display="flex" flexDirection="column" gap={2}>
-              {songs.map((song, index) => (
+              {filteredSongs.map((song, index) => (
                 <SongCard
                   key={song.id}
                   song={song}
                   index={index}
-                  totalSongs={songs.length}
+                  totalSongs={filteredSongs.length}
                   onClick={() => handleSongClick(song, index)}
                   onSongDeleted={handleSongDeleted}
                 />

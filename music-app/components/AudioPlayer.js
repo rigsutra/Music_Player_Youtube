@@ -1,7 +1,7 @@
 // components/AudioPlayer.js - With API client
-"use client";
+'use client'
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from 'react'
 import {
   Box,
   IconButton,
@@ -9,8 +9,8 @@ import {
   Slider,
   Paper,
   Collapse,
-  LinearProgress
-} from "@mui/material";
+  LinearProgress // <--- FIX: LinearProgress import added
+} from '@mui/material'
 import {
   PlayArrow as PlayIcon,
   Pause as PauseIcon,
@@ -20,17 +20,17 @@ import {
   VolumeOff as VolumeOffIcon,
   ExpandLess as ExpandLessIcon,
   ExpandMore as ExpandMoreIcon,
-  MusicNote as MusicNoteIcon,
-} from "@mui/icons-material";
-import { motion, AnimatePresence } from "framer-motion";
-import { useMusicStore } from "../lib/store";
-import { formatTime } from "../lib/utils";
-import { API_BASE } from "../lib/config";
-import { authService } from "../lib/auth";
+  MusicNote as MusicNoteIcon
+} from '@mui/icons-material'
+import { motion, AnimatePresence } from 'framer-motion'
+import { useMusicStore } from '../lib/store'
+import { formatTime } from '../lib/utils'
+import { API_BASE } from '../lib/config'
+import { authService } from '../lib/auth'
 
 export default function AudioPlayer() {
-  const audioRef = useRef(null);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const audioRef = useRef(null)
+  const [isExpanded, setIsExpanded] = useState(false)
 
   const {
     currentSong,
@@ -50,122 +50,122 @@ export default function AudioPlayer() {
     playNext,
     playPrevious,
     togglePlayPause,
-    seekTo,
-  } = useMusicStore();
+    seekTo
+  } = useMusicStore()
 
   // Initialize audio element with JWT token
   useEffect(() => {
     if (currentSong && audioRef.current) {
-      const audio = audioRef.current;
-      const token = authService.getToken();
+      const audio = audioRef.current
+      const token = authService.getToken()
 
       // Add JWT token as a query parameter for audio streaming
       const streamUrl = token
-        ? `${API_BASE}/api/songs/stream/${
-            currentSong.id
-          }?token=${encodeURIComponent(token)}`
-        : `${API_BASE}/api/songs/stream/${currentSong.id}`;
+        ? `${API_BASE}/api/songs/stream/${currentSong.id}?token=${encodeURIComponent(token)}`
+        : `${API_BASE}/api/songs/stream/${currentSong.id}`
 
-      audio.src = streamUrl;
+      audio.src = streamUrl
 
       if (isPlaying) {
-        audio.play().catch(console.error);
+        audio.play().catch(console.error)
       }
     }
-  }, [currentSong]);
+  }, [currentSong])
 
   // Audio event listeners (same as before)
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
+    const audio = audioRef.current
+    if (!audio) return
 
-    const handleLoadStart = () => setLoading(true);
-    const handleCanPlay = () => setLoading(false);
-    const handleLoadedMetadata = () => setDuration(audio.duration);
-    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
+    const handleLoadStart = () => setLoading(true)
+    const handleCanPlay = () => setLoading(false)
+    const handleLoadedMetadata = () => setDuration(audio.duration)
+    const handleTimeUpdate = () => setCurrentTime(audio.currentTime)
     const handleEnded = () => {
-      setIsPlaying(false);
-      playNext();
-    };
+      setIsPlaying(false)
+      playNext()
+    }
     const handleError = (e) => {
-      console.error("Audio error:", e);
-      setLoading(false);
-      setIsPlaying(false);
-    };
+      console.error('Audio error:', e)
+      setLoading(false)
+      setIsPlaying(false)
+    }
 
-    audio.addEventListener("loadstart", handleLoadStart);
-    audio.addEventListener("canplay", handleCanPlay);
-    audio.addEventListener("loadedmetadata", handleLoadedMetadata);
-    audio.addEventListener("timeupdate", handleTimeUpdate);
-    audio.addEventListener("ended", handleEnded);
-    audio.addEventListener("error", handleError);
+    audio.addEventListener('loadstart', handleLoadStart)
+    audio.addEventListener('canplay', handleCanPlay)
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata)
+    audio.addEventListener('timeupdate', handleTimeUpdate)
+    audio.addEventListener('ended', handleEnded)
+    audio.addEventListener('error', handleError)
 
     return () => {
-      audio.removeEventListener("loadstart", handleLoadStart);
-      audio.removeEventListener("canplay", handleCanPlay);
-      audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
-      audio.removeEventListener("timeupdate", handleTimeUpdate);
-      audio.removeEventListener("ended", handleEnded);
-      audio.removeEventListener("error", handleError);
-    };
-  }, [currentSong]);
+      audio.removeEventListener('loadstart', handleLoadStart)
+      audio.removeEventListener('canplay', handleCanPlay)
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata)
+      audio.removeEventListener('timeupdate', handleTimeUpdate)
+      audio.removeEventListener('ended', handleEnded)
+      audio.removeEventListener('error', handleError)
+    }
+  }, [currentSong])
 
   // Handle play/pause
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
+    const audio = audioRef.current
+    if (!audio) return
 
     if (isPlaying) {
-      audio.play().catch(console.error);
+      audio.play().catch(console.error)
     } else {
-      audio.pause();
+      audio.pause()
     }
-  }, [isPlaying]);
+  }, [isPlaying])
 
   // Handle volume
   useEffect(() => {
-    const audio = audioRef.current;
+    const audio = audioRef.current
     if (audio) {
-      audio.volume = isMuted ? 0 : volume;
+      audio.volume = isMuted ? 0 : volume
     }
-  }, [volume, isMuted]);
+  }, [volume, isMuted])
 
   const handleSeek = (_, newValue) => {
-    const seekTime = (newValue / 100) * duration;
-    seekTo(seekTime);
+    const seekTime = (newValue / 100) * duration
+    seekTo(seekTime)
     if (audioRef.current) {
-      audioRef.current.currentTime = seekTime;
+      audioRef.current.currentTime = seekTime
     }
-  };
+  }
 
   const handleVolumeChange = (_, newValue) => {
-    setVolume(newValue / 100);
-    setMuted(false);
-  };
+    setVolume(newValue / 100)
+    setMuted(false)
+  }
 
-  if (!isPlayerVisible || !currentSong) return null;
+  if (!isPlayerVisible || !currentSong) return null
 
-  const songName =
-    currentSong.name?.replace(/\.(webm|mp3|m4a)$/, "") || "Unknown Song";
-  const progressPercent = duration ? (currentTime / duration) * 100 : 0;
+  const songName = currentSong.name?.replace(/\.(webm|mp3|m4a)$/, '') || 'Unknown Song'
+  const progressPercent = duration ? (currentTime / duration) * 100 : 0
 
   return (
     <>
       <audio ref={audioRef} preload="metadata" />
 
       <AnimatePresence>
-        <motion.div initial={{ y: 100 }} animate={{ y: 0 }} exit={{ y: 100 }}>
+        <motion.div
+          initial={{ y: 100 }}
+          animate={{ y: 0 }}
+          exit={{ y: 100 }}
+        >
           <Paper
             elevation={24}
             sx={{
-              position: "fixed",
+              position: 'fixed',
               bottom: 0,
               left: 0,
               right: 0,
-              background:
-                "linear-gradient(135deg, rgba(31, 41, 55, 0.95) 0%, rgba(17, 24, 39, 0.98) 100%)",
-              backdropFilter: "blur(20px)",
-              borderTop: "1px solid rgba(139, 92, 246, 0.3)",
+              background: 'linear-gradient(135deg, rgba(31, 41, 55, 0.95) 0%, rgba(17, 24, 39, 0.98) 100%)',
+              backdropFilter: 'blur(20px)',
+              borderTop: '1px solid rgba(139, 92, 246, 0.3)',
               zIndex: 1300,
             }}
           >
@@ -176,14 +176,13 @@ export default function AudioPlayer() {
                 value={progressPercent}
                 sx={{
                   height: 4,
-                  width: "100%",
-                  position: "absolute",
+                  width: '100%',
+                  position: 'absolute',
                   top: 0,
                   left: 0,
-                  backgroundColor: "rgba(75, 85, 99, 0.3)",
-                  "& .MuiLinearProgress-bar": {
-                    background:
-                      "linear-gradient(90deg, #8b5cf6 0%, #ec4899 100%)",
+                  backgroundColor: 'rgba(75, 85, 99, 0.3)',
+                  '& .MuiLinearProgress-bar': {
+                    background: 'linear-gradient(90deg, #8b5cf6 0%, #ec4899 100%)',
                   },
                 }}
               />
@@ -192,10 +191,10 @@ export default function AudioPlayer() {
             {/* Expand/Collapse Button */}
             <Box
               sx={{
-                position: "absolute",
+                position: 'absolute',
                 top: -20,
-                left: "50%",
-                transform: "translateX(-50%)",
+                left: '50%',
+                transform: 'translateX(-50%)',
                 zIndex: 1,
               }}
             >
@@ -204,14 +203,12 @@ export default function AudioPlayer() {
                 sx={{
                   width: 40,
                   height: 40,
-                  background:
-                    "linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%)",
-                  color: "white",
-                  boxShadow: "0 4px 20px rgba(139, 92, 246, 0.4)",
-                  "&:hover": {
-                    background:
-                      "linear-gradient(135deg, #7c3aed 0%, #db2777 100%)",
-                    transform: "scale(1.1)",
+                  background: 'linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%)',
+                  color: 'white',
+                  boxShadow: '0 4px 20px rgba(139, 92, 246, 0.4)',
+                  '&:hover': {
+                    background: 'linear-gradient(135deg, #7c3aed 0%, #db2777 100%)',
+                    transform: 'scale(1.1)',
                   },
                 }}
               >
@@ -225,11 +222,7 @@ export default function AudioPlayer() {
                 <Box display="flex" alignItems="center" gap={2}>
                   {/* Song Info */}
                   <Box flex={1} minWidth={0}>
-                    <Typography
-                      variant="subtitle2"
-                      noWrap
-                      sx={{ fontWeight: 600 }}
-                    >
+                    <Typography variant="subtitle2" noWrap sx={{ fontWeight: 600 }}>
                       {songName}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
@@ -239,11 +232,7 @@ export default function AudioPlayer() {
 
                   {/* Mini Controls */}
                   <Box display="flex" alignItems="center" gap={1}>
-                    <IconButton
-                      onClick={playPrevious}
-                      size="small"
-                      sx={{ color: "text.secondary" }}
-                    >
+                    <IconButton onClick={playPrevious} size="small" sx={{ color: 'text.secondary' }}>
                       <BackwardIcon />
                     </IconButton>
 
@@ -253,26 +242,20 @@ export default function AudioPlayer() {
                       sx={{
                         width: 48,
                         height: 48,
-                        background:
-                          "linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%)",
-                        color: "white",
-                        "&:hover": {
-                          background:
-                            "linear-gradient(135deg, #7c3aed 0%, #db2777 100%)",
+                        background: 'linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%)',
+                        color: 'white',
+                        '&:hover': {
+                          background: 'linear-gradient(135deg, #7c3aed 0%, #db2777 100%)',
                         },
-                        "&:disabled": {
-                          background: "rgba(75, 85, 99, 0.5)",
+                        '&:disabled': {
+                          background: 'rgba(75, 85, 99, 0.5)',
                         },
                       }}
                     >
                       {isLoading ? (
                         <motion.div
                           animate={{ rotate: 360 }}
-                          transition={{
-                            duration: 1,
-                            repeat: Infinity,
-                            ease: "linear",
-                          }}
+                          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
                         >
                           <MusicNoteIcon />
                         </motion.div>
@@ -283,11 +266,7 @@ export default function AudioPlayer() {
                       )}
                     </IconButton>
 
-                    <IconButton
-                      onClick={playNext}
-                      size="small"
-                      sx={{ color: "text.secondary" }}
-                    >
+                    <IconButton onClick={playNext} size="small" sx={{ color: 'text.secondary' }}>
                       <ForwardIcon />
                     </IconButton>
                   </Box>
@@ -303,8 +282,7 @@ export default function AudioPlayer() {
                       {songName}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Added{" "}
-                      {new Date(currentSong.createdTime).toLocaleDateString()}
+                      Added {new Date(currentSong.createdTime).toLocaleDateString()}
                     </Typography>
                   </Box>
 
@@ -315,11 +293,11 @@ export default function AudioPlayer() {
                       onChange={handleSeek}
                       sx={{
                         height: 6,
-                        "& .MuiSlider-thumb": {
+                        '& .MuiSlider-thumb': {
                           width: 20,
                           height: 20,
-                          "&:hover": {
-                            boxShadow: "0 0 0 8px rgba(139, 92, 246, 0.16)",
+                          '&:hover': {
+                            boxShadow: '0 0 0 8px rgba(139, 92, 246, 0.16)',
                           },
                         },
                       }}
@@ -335,20 +313,14 @@ export default function AudioPlayer() {
                   </Box>
 
                   {/* Main Controls */}
-                  <Box
-                    display="flex"
-                    justifyContent="center"
-                    alignItems="center"
-                    gap={2}
-                    mb={3}
-                  >
+                  <Box display="flex" justifyContent="center" alignItems="center" gap={2} mb={3}>
                     <IconButton
                       onClick={playPrevious}
                       sx={{
                         width: 56,
                         height: 56,
-                        color: "text.secondary",
-                        "&:hover": { color: "primary.main" },
+                        color: 'text.secondary',
+                        '&:hover': { color: 'primary.main' },
                       }}
                     >
                       <BackwardIcon sx={{ fontSize: 28 }} />
@@ -360,28 +332,22 @@ export default function AudioPlayer() {
                       sx={{
                         width: 72,
                         height: 72,
-                        background:
-                          "linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%)",
-                        color: "white",
-                        boxShadow: "0 8px 25px rgba(139, 92, 246, 0.4)",
-                        "&:hover": {
-                          background:
-                            "linear-gradient(135deg, #7c3aed 0%, #db2777 100%)",
-                          boxShadow: "0 12px 30px rgba(139, 92, 246, 0.5)",
+                        background: 'linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%)',
+                        color: 'white',
+                        boxShadow: '0 8px 25px rgba(139, 92, 246, 0.4)',
+                        '&:hover': {
+                          background: 'linear-gradient(135deg, #7c3aed 0%, #db2777 100%)',
+                          boxShadow: '0 12px 30px rgba(139, 92, 246, 0.5)',
                         },
-                        "&:disabled": {
-                          background: "rgba(75, 85, 99, 0.5)",
+                        '&:disabled': {
+                          background: 'rgba(75, 85, 99, 0.5)',
                         },
                       }}
                     >
                       {isLoading ? (
                         <motion.div
                           animate={{ rotate: 360 }}
-                          transition={{
-                            duration: 1,
-                            repeat: Infinity,
-                            ease: "linear",
-                          }}
+                          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
                         >
                           <MusicNoteIcon sx={{ fontSize: 32 }} />
                         </motion.div>
@@ -397,8 +363,8 @@ export default function AudioPlayer() {
                       sx={{
                         width: 56,
                         height: 56,
-                        color: "text.secondary",
-                        "&:hover": { color: "primary.main" },
+                        color: 'text.secondary',
+                        '&:hover': { color: 'primary.main' },
                       }}
                     >
                       <ForwardIcon sx={{ fontSize: 28 }} />
@@ -409,13 +375,9 @@ export default function AudioPlayer() {
                   <Box display="flex" alignItems="center" gap={2}>
                     <IconButton
                       onClick={() => setMuted(!isMuted)}
-                      sx={{ color: "text.secondary" }}
+                      sx={{ color: 'text.secondary' }}
                     >
-                      {isMuted || volume === 0 ? (
-                        <VolumeOffIcon />
-                      ) : (
-                        <VolumeUpIcon />
-                      )}
+                      {isMuted || volume === 0 ? <VolumeOffIcon /> : <VolumeUpIcon />}
                     </IconButton>
 
                     <Slider
@@ -423,7 +385,7 @@ export default function AudioPlayer() {
                       onChange={handleVolumeChange}
                       sx={{
                         maxWidth: 120,
-                        "& .MuiSlider-thumb": {
+                        '& .MuiSlider-thumb': {
                           width: 16,
                           height: 16,
                         },
@@ -437,5 +399,5 @@ export default function AudioPlayer() {
         </motion.div>
       </AnimatePresence>
     </>
-  );
+  )
 }
