@@ -5,6 +5,9 @@ const { authenticateUser } = require('../middleware/auth');
 const googleDriveService = require('../services/googleDriveService');
 const { isValidYouTubeUrl, sanitizeFileName, getVideoInfo, createAudioStream } = require('../utils/youtube');
 const Upload = require('../models/Upload');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
 const router = express.Router();
 
@@ -12,13 +15,13 @@ const router = express.Router();
 router.post('/start', authenticateUser, async (req, res) => {
   try {
     const { youtubeUrl, fileName } = req.body;
-    
+
     if (!youtubeUrl || !isValidYouTubeUrl(youtubeUrl)) {
       return res.status(400).json({ message: 'Invalid YouTube URL' });
     }
 
     const uploadId = crypto.randomUUID();
-    
+
     // Get video info with error handling
     let videoInfo;
     try {
@@ -31,9 +34,10 @@ router.post('/start', authenticateUser, async (req, res) => {
         thumbnail: null
       };
     }
-    
+
+    // Set file extension to .webm (since we are downloading raw audio without ffmpeg)
     const safeName = sanitizeFileName(fileName || videoInfo.title) + '.webm';
-    
+
     // Create upload record
     const upload = new Upload({
       uploadId,
@@ -42,21 +46,21 @@ router.post('/start', authenticateUser, async (req, res) => {
       videoTitle: videoInfo.title,
       fileName: safeName
     });
-    
+
     await upload.save();
-    
+
     // Return immediately
     res.json({
       uploadId,
       fileName: safeName,
       videoTitle: videoInfo.title
     });
-    
+
     // Process upload asynchronously
     processUpload(upload).catch(error => {
       console.error(`Async upload processing failed for ${uploadId}:`, error.message);
     });
-    
+
   } catch (error) {
     console.error(`Upload start error for user ${req.userId}:`, error.message);
     res.status(500).json({
@@ -70,27 +74,27 @@ router.post('/start', authenticateUser, async (req, res) => {
 router.get('/progress/:uploadId', authenticateUser, async (req, res) => {
   try {
     const { uploadId } = req.params;
-    
+
     const upload = await Upload.findOne({
       uploadId,
       userId: req.userId,
       isActive: true
     });
-    
+
     if (!upload) {
       return res.json({
         progress: 0,
         stage: 'not_found'
       });
     }
-    
+
     res.json({
       progress: upload.progress,
       stage: upload.stage,
       error: upload.error,
       retryCount: upload.retryCount || 0
     });
-    
+
   } catch (error) {
     console.error(`Progress check error:`, error.message);
     res.status(500).json({
@@ -104,22 +108,22 @@ router.get('/progress/:uploadId', authenticateUser, async (req, res) => {
 router.post('/cancel/:uploadId', authenticateUser, async (req, res) => {
   try {
     const { uploadId } = req.params;
-    
+
     const upload = await Upload.findOne({
       uploadId,
       userId: req.userId,
       isActive: true
     });
-    
+
     if (!upload) {
       return res.status(404).json({ message: 'Upload not found' });
     }
-    
+
     upload.stage = 'canceled';
     upload.isActive = false;
     await upload.save();
     res.json({ message: 'Upload canceled' });
-    
+
   } catch (error) {
     console.error('Cancel upload error:', error.message);
     res.status(500).json({ message: 'Failed to cancel upload' });
@@ -130,17 +134,17 @@ router.post('/cancel/:uploadId', authenticateUser, async (req, res) => {
 router.post('/retry/:uploadId', authenticateUser, async (req, res) => {
   try {
     const { uploadId } = req.params;
-    
+
     const upload = await Upload.findOne({
       uploadId,
       userId: req.userId,
       stage: 'error'
     });
-    
+
     if (!upload) {
       return res.status(404).json({ message: 'Upload not found or not in error state' });
     }
-    
+
     // Reset upload state
     upload.stage = 'starting';
     upload.progress = 0;
@@ -149,26 +153,24 @@ router.post('/retry/:uploadId', authenticateUser, async (req, res) => {
     upload.retryCount = (upload.retryCount || 0) + 1;
     await upload.save();
     res.json({ message: 'Upload retry started', retryCount: upload.retryCount });
-    
+
     // Process upload again
     processUpload(upload).catch(error => {
       console.error(`Retry failed for ${uploadId}:`, error.message);
     });
-    
+
   } catch (error) {
     console.error('Retry upload error:', error.message);
     res.status(500).json({ message: 'Failed to retry upload' });
   }
 });
 
-// Add this to your /routes/upload.js file - replace the existing SSE endpoint
-
-// SSE Progress endpoint - FIXED VERSION
+// SSE Progress endpoint
 router.get('/progress/:uploadId/stream', async (req, res) => {
   const { uploadId } = req.params;
-  
+
   const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
-  
+
   if (!token) {
     return res.status(401).json({ message: 'Authentication required' });
   }
@@ -179,7 +181,7 @@ router.get('/progress/:uploadId/stream', async (req, res) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const User = require('../models/User');
     const user = await User.findById(decoded.userId);
-    
+
     if (!user || !user.isActive) {
       return res.status(401).json({ message: 'Invalid token' });
     }
@@ -200,17 +202,17 @@ router.get('/progress/:uploadId/stream', async (req, res) => {
           uploadId,
           userId: decoded.userId
         });
-        
+
         if (!upload) {
-          res.write(`data: ${JSON.stringify({ 
-            progress: 0, 
-            stage: 'not_found' 
+          res.write(`data: ${JSON.stringify({
+            progress: 0,
+            stage: 'not_found'
           })}\n\n`);
           clearInterval(interval);
           res.end();
           return;
         }
-        
+
         // Send the update
         const data = {
           progress: upload.progress || 0,
@@ -220,9 +222,9 @@ router.get('/progress/:uploadId/stream', async (req, res) => {
           videoTitle: upload.videoTitle,
           fileName: upload.fileName
         };
-        
+
         res.write(`data: ${JSON.stringify(data)}\n\n`);
-        
+
         // Close connection when done
         if (['done', 'error', 'canceled'].includes(upload.stage)) {
           clearInterval(interval);
@@ -239,7 +241,7 @@ router.get('/progress/:uploadId/stream', async (req, res) => {
     req.on('close', () => {
       clearInterval(interval);
     });
-    
+
   } catch (error) {
     console.error('SSE auth error:', error.message);
     res.status(401).json({ message: 'Invalid token' });
@@ -250,7 +252,10 @@ router.get('/progress/:uploadId/stream', async (req, res) => {
 async function processUpload(upload) {
   let progressUpdateInterval = null;
   let isSaving = false; // Flag to prevent parallel saves
-  
+
+  // Define temp file path
+  const tempFilePath = path.join(os.tmpdir(), `upload-${upload.uploadId}.webm`);
+
   try {
     // Check if canceled before starting
     const checkUpload = await Upload.findById(upload._id);
@@ -266,16 +271,16 @@ async function processUpload(upload) {
     // Create audio stream with progress callback
     let stream;
     let lastProgress = 0;
-    
+
     try {
       const result = await createAudioStream(upload.youtubeUrl, async (progress) => {
         // Prevent parallel saves
         if (isSaving) return;
-        
+
         // Only update if progress changed significantly (every 5%)
         if (Math.abs(progress - lastProgress) >= 5 || progress === 100) {
           lastProgress = progress;
-          
+
           // Set flag and save
           isSaving = true;
           try {
@@ -292,14 +297,14 @@ async function processUpload(upload) {
           }
         }
       });
-      
+
       stream = result?.stream;
       if (!stream) {
         throw new Error('No stream returned from createAudioStream');
       }
     } catch (err) {
       console.error(`Failed to create audio stream for ${upload.uploadId}:`, err.message);
-      
+
       // Save error state (re-fetch to avoid conflicts)
       const errorUpload = await Upload.findById(upload._id);
       if (errorUpload) {
@@ -311,34 +316,39 @@ async function processUpload(upload) {
       return;
     }
 
-    // Handle stream errors
-    if (stream.on) {
-      stream.on('error', async (err) => {
-        console.error(`Stream error for upload ${upload.uploadId}:`, err.message);
-        
-        // Prevent parallel error saves
-        if (!isSaving) {
-          isSaving = true;
-          try {
-            const errorUpload = await Upload.findById(upload._id);
-            if (errorUpload && errorUpload.stage !== 'error') {
-              errorUpload.stage = 'error';
-              errorUpload.error = `Stream error: ${err.message}`;
-              errorUpload.isActive = false;
-              await errorUpload.save();
-            }
-          } catch (saveErr) {
-            console.error('Failed to save error state:', saveErr.message);
-          } finally {
-            isSaving = false;
-          }
-        }
+    // Download to temp file first
+    try {
+      const writeStream = fs.createWriteStream(tempFilePath);
+
+      await new Promise((resolve, reject) => {
+        stream.pipe(writeStream);
+
+        stream.on('error', (err) => reject(err));
+        writeStream.on('error', (err) => reject(err));
+        writeStream.on('finish', () => resolve());
       });
+    } catch (err) {
+      console.error(`Stream/File error for upload ${upload.uploadId}:`, err.message);
+
+      // Clean up partial file
+      if (fs.existsSync(tempFilePath)) {
+        fs.unlinkSync(tempFilePath);
+      }
+
+      const errorUpload = await Upload.findById(upload._id);
+      if (errorUpload && errorUpload.stage !== 'error') {
+        errorUpload.stage = 'error';
+        errorUpload.error = `Download error: ${err.message}`;
+        errorUpload.isActive = false;
+        await errorUpload.save();
+      }
+      return;
     }
 
     // Check if canceled before uploading
     const checkUpload2 = await Upload.findById(upload._id);
     if (checkUpload2.stage === 'canceled') {
+      if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
       return;
     }
 
@@ -346,19 +356,23 @@ async function processUpload(upload) {
     const uploadingDoc = await Upload.findById(upload._id);
     uploadingDoc.stage = 'uploading';
     uploadingDoc.progress = 0;
+    // Ensure file name has .webm extension
+    if (!uploadingDoc.fileName.endsWith('.webm')) {
+      uploadingDoc.fileName = uploadingDoc.fileName.replace(/\.[^/.]+$/, "") + ".webm";
+    }
     await uploadingDoc.save();
 
     // Track upload progress to Google Drive
     let uploadStartTime = Date.now();
-    let estimatedUploadTime = 30000; // Estimate 30 seconds for upload
-    
+    let estimatedUploadTime = 10000; // 10 seconds total estimation
+
     // Start a progress simulator for upload
     progressUpdateInterval = setInterval(async () => {
       if (isSaving) return; // Skip if already saving
-      
+
       const elapsed = Date.now() - uploadStartTime;
       const estimatedProgress = Math.min(90, Math.floor((elapsed / estimatedUploadTime) * 100));
-      
+
       isSaving = true;
       try {
         const currentUpload = await Upload.findById(upload._id);
@@ -373,21 +387,23 @@ async function processUpload(upload) {
       } finally {
         isSaving = false;
       }
-    }, 3000); // Reduce frequency to every 3 seconds
+    }, 1000);
 
     // Upload to Google Drive
     let fileId;
     try {
+      const fileStream = fs.createReadStream(tempFilePath);
+
       fileId = await googleDriveService.uploadFile(
         upload.userId,
         uploadingDoc.fileName,
-        stream,
-        'audio/webm'
+        fileStream,
+        'audio/webm' // Correct MIME type for webm
       );
     } catch (err) {
       clearInterval(progressUpdateInterval);
       console.error(`Google Drive upload failed for ${upload.uploadId}:`, err.message);
-      
+
       // Save error state
       const errorUpload = await Upload.findById(upload._id);
       if (errorUpload) {
@@ -397,6 +413,11 @@ async function processUpload(upload) {
         await errorUpload.save();
       }
       return;
+    } finally {
+      // Clean up temp file
+      if (fs.existsSync(tempFilePath)) {
+        fs.unlinkSync(tempFilePath);
+      }
     }
 
     // Clear progress interval
@@ -419,9 +440,14 @@ async function processUpload(upload) {
     if (progressUpdateInterval) {
       clearInterval(progressUpdateInterval);
     }
-    
+
+    // Clean up temp file
+    if (fs.existsSync(tempFilePath)) {
+      fs.unlinkSync(tempFilePath);
+    }
+
     console.error(`Upload processing failed for ${upload.uploadId}:`, error.message);
-    
+
     // Final error save
     if (!isSaving) {
       try {

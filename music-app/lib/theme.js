@@ -20,20 +20,6 @@ export const theme = createTheme({
       paper: 'rgba(31, 41, 55, 0.8)',
     },
     text: {
-      primary: '#ffffff',
-      secondary: '#d1d5db',
-    },
-    divider: 'rgba(75, 85, 99, 0.3)',
-  },
-  typography: {
-    fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
-    h1: {
-      fontSize: '2.5rem',
-      fontWeight: 700,
-      background: 'linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%)',
-      WebkitBackgroundClip: 'text',
-      WebkitTextFillColor: 'transparent',
-      backgroundClip: 'text',
     },
     h2: {
       fontSize: '2rem',
@@ -96,7 +82,8 @@ export const theme = createTheme({
           boxShadow: '0 8px 25px rgba(139, 92, 246, 0.3)',
           '&:hover': {
             background: 'linear-gradient(135deg, #7c3aed 0%, #db2777 100%)',
-            boxShadow: '0 12px 30px rgba(139, 92, 246, 0.4)',
+            // IMPROVEMENT: Softer, modern glow effect
+            boxShadow: '0 0 20px rgba(236, 72, 153, 0.6), 0 0 10px rgba(139, 92, 246, 0.4)',
           },
         },
       },

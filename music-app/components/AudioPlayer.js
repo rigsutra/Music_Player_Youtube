@@ -8,7 +8,8 @@ import {
   Typography,
   Slider,
   Paper,
-  Collapse
+  Collapse,
+  LinearProgress // <--- FIX: LinearProgress import added
 } from '@mui/material'
 import {
   PlayArrow as PlayIcon,
@@ -168,6 +169,25 @@ export default function AudioPlayer() {
               zIndex: 1300,
             }}
           >
+            {/* IMPROVEMENT: Progress bar on top of the mini-player */}
+            {!isExpanded && (
+              <LinearProgress
+                variant="determinate"
+                value={progressPercent}
+                sx={{
+                  height: 4,
+                  width: '100%',
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  backgroundColor: 'rgba(75, 85, 99, 0.3)',
+                  '& .MuiLinearProgress-bar': {
+                    background: 'linear-gradient(90deg, #8b5cf6 0%, #ec4899 100%)',
+                  },
+                }}
+              />
+            )}
+
             {/* Expand/Collapse Button */}
             <Box
               sx={{
